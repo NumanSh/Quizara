@@ -42,7 +42,8 @@ export function useAuth(): AuthState {
   }, []);
 
   const login = useCallback(() => {
-    const loginUrl = `/api/login?returnTo=${encodeURIComponent(window.location.pathname)}`;
+    const returnTo = window.location.origin + window.location.pathname;
+    const loginUrl = `/api/login?returnTo=${encodeURIComponent(returnTo)}`;
     if (window !== window.top) {
       window.open(loginUrl, "_blank");
     } else {

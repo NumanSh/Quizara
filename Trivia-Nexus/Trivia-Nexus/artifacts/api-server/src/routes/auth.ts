@@ -51,9 +51,16 @@ function setOidcCookie(res: Response, name: string, value: string) {
 }
 
 function getSafeReturnTo(value: unknown): string {
-  if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//")) {
-    return "/";
+  if (typeof value !== "string") return "/";
+  if (value.startsWith("http://") || value.startsWith("https://")) {
+    try {
+      new URL(value);
+      return value;
+    } catch {
+      return "/";
+    }
   }
+  if (!value.startsWith("/") || value.startsWith("//")) return "/";
   return value;
 }
 
