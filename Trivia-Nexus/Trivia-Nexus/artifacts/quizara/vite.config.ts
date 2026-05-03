@@ -67,8 +67,44 @@ export default defineConfig({
       strict: true,
     },
     proxy: {
-      "/api": { target: "http://localhost:8080", changeOrigin: true },
-      "/auth": { target: "http://localhost:8080", changeOrigin: true },
+      "/api": {
+        target: "http://localhost:8080",
+        changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on("proxyReq", (proxyReq, req) => {
+            const originalHost =
+              req.headers["x-forwarded-host"] || req.headers["host"];
+            if (originalHost) {
+              proxyReq.setHeader(
+                "x-forwarded-host",
+                Array.isArray(originalHost) ? originalHost[0] : originalHost,
+              );
+            }
+            if (!req.headers["x-forwarded-proto"]) {
+              proxyReq.setHeader("x-forwarded-proto", "https");
+            }
+          });
+        },
+      },
+      "/auth": {
+        target: "http://localhost:8080",
+        changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on("proxyReq", (proxyReq, req) => {
+            const originalHost =
+              req.headers["x-forwarded-host"] || req.headers["host"];
+            if (originalHost) {
+              proxyReq.setHeader(
+                "x-forwarded-host",
+                Array.isArray(originalHost) ? originalHost[0] : originalHost,
+              );
+            }
+            if (!req.headers["x-forwarded-proto"]) {
+              proxyReq.setHeader("x-forwarded-proto", "https");
+            }
+          });
+        },
+      },
     },
   },
   preview: {

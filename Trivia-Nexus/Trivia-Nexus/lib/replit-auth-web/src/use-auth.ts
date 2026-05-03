@@ -42,7 +42,12 @@ export function useAuth(): AuthState {
   }, []);
 
   const login = useCallback(() => {
-    window.location.href = `/api/login?returnTo=${encodeURIComponent(window.location.pathname)}`;
+    const loginUrl = `/api/login?returnTo=${encodeURIComponent(window.location.pathname)}`;
+    if (window !== window.top) {
+      window.open(loginUrl, "_blank");
+    } else {
+      window.location.href = loginUrl;
+    }
   }, []);
 
   const logout = useCallback(() => {
