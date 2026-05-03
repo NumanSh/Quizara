@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
-import { marketplaceItemsTable, userInventoryTable, profilesTable } from "@workspace/db";
+import { marketplaceItemsTable, userInventoryTable, profilesTable, questionsTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 
 const router: IRouter = Router();
@@ -17,7 +17,33 @@ async function ensureMarketplaceItems() {
     { name: "Skip Question", nameAr: "تخطي السؤال", description: "Skip the current question without any penalty.", descriptionAr: "تخطى السؤال الحالي دون أي خصم.", type: "powerup", effect: "skip_question", emoji: "⏭️", price: 250 },
     { name: "Double Score", nameAr: "مضاعفة النقاط", description: "Doubles your points for the next 3 questions.", descriptionAr: "يضاعف نقاطك لمدة 3 أسئلة قادمة.", type: "powerup", effect: "double_score", emoji: "✖️", price: 500 },
     { name: "Lucky Wheel", nameAr: "عجلة الحظ", description: "Spin for a random reward — coins, power-ups, or bonus points.", descriptionAr: "أدر العجلة للحصول على مكافأة عشوائية.", type: "powerup", effect: "lucky_wheel", emoji: "🎰", price: 300 },
+    { name: "Shield", nameAr: "درع", description: "Block your opponent's next power-up (Arena only).", descriptionAr: "يحجب قوة خصمك التالية في الساحة.", type: "powerup", effect: "shield", emoji: "🛡️", price: 350 },
+    { name: "Steal Question", nameAr: "سرقة السؤال", description: "Steal your opponent's points for the current question (Arena only).", descriptionAr: "تسرق نقاط خصمك للسؤال الحالي.", type: "powerup", effect: "steal_question", emoji: "🎯", price: 600 },
   ]);
+}
+
+// Ensure Arena-specific power-ups exist (run on every items fetch)
+async function ensureArenaPowerUps() {
+  const arenaEffects = ["shield", "steal_question"];
+  for (const effect of arenaEffects) {
+    const [existing] = await db.select().from(marketplaceItemsTable)
+      .where(eq(marketplaceItemsTable.effect, effect));
+    if (!existing) {
+      if (effect === "shield") {
+        await db.insert(marketplaceItemsTable).values({
+          name: "Shield", nameAr: "درع",
+          description: "Block your opponent's next power-up (Arena only).", descriptionAr: "يحجب قوة خصمك التالية في الساحة.",
+          type: "powerup", effect: "shield", emoji: "🛡️", price: 350,
+        });
+      } else {
+        await db.insert(marketplaceItemsTable).values({
+          name: "Steal Question", nameAr: "سرقة السؤال",
+          description: "Steal your opponent's points for the current question (Arena only).", descriptionAr: "تسرق نقاط خصمك للسؤال الحالي.",
+          type: "powerup", effect: "steal_question", emoji: "🎯", price: 600,
+        });
+      }
+    }
+  }
 }
 
 // Seed cosmetic items if none exist yet
@@ -66,6 +92,7 @@ router.get("/marketplace/items", async (req, res) => {
   try {
     await ensureMarketplaceItems();
     await ensureCosmeticItems();
+    await ensureArenaPowerUps();
     const items = await db
       .select()
       .from(marketplaceItemsTable)
@@ -301,6 +328,115 @@ router.post("/marketplace/equip", async (req, res) => {
     });
   } catch (err) {
     req.log.error({ err }, "Failed to equip cosmetic");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── Power-Up Endpoints ────────────────────────────────────────────────────────
+
+// POST /api/powerups/fifty-fifty — consume item + return 2 wrong option indices to eliminate
+router.post("/powerups/fifty-fifty", async (req, res) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  try {
+    const userId = req.user.id;
+    const { questionId, itemId } = req.body;
+
+    if (!questionId || !itemId) {
+      res.status(400).json({ error: "questionId and itemId are required" });
+      return;
+    }
+
+    // Verify and consume the item
+    const [entry] = await db.select().from(userInventoryTable)
+      .where(and(eq(userInventoryTable.userId, userId), eq(userInventoryTable.itemId, itemId)));
+
+    if (!entry || entry.quantity < 1) {
+      res.status(404).json({ error: "Item not in inventory" });
+      return;
+    }
+
+    if (entry.quantity === 1) {
+      await db.delete(userInventoryTable).where(eq(userInventoryTable.id, entry.id));
+    } else {
+      await db.update(userInventoryTable)
+        .set({ quantity: entry.quantity - 1 })
+        .where(eq(userInventoryTable.id, entry.id));
+    }
+
+    // Look up question to find correct answer
+    const [q] = await db.select({
+      options: questionsTable.options,
+      correctAnswer: questionsTable.correctAnswer,
+    }).from(questionsTable).where(eq(questionsTable.id, questionId));
+
+    if (!q) {
+      res.json({ eliminatedOptions: [] });
+      return;
+    }
+
+    const opts = q.options as string[];
+    const wrongIndices = opts.map((_, i) => i).filter(i => i !== q.correctAnswer);
+    // Shuffle wrong indices and pick 2
+    const shuffled = wrongIndices.sort(() => Math.random() - 0.5);
+    const eliminatedOptions = shuffled.slice(0, 2).sort((a, b) => a - b);
+
+    res.json({ eliminatedOptions });
+  } catch (err) {
+    req.log.error({ err }, "Failed to apply fifty-fifty");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// POST /api/powerups/watch-ad — give a free random powerup from the marketplace
+router.post("/powerups/watch-ad", async (req, res) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  try {
+    const userId = req.user.id;
+
+    // Get all active powerup items (excluding Arena-only ones for the free reward)
+    const allPowerups = await db.select().from(marketplaceItemsTable)
+      .where(and(eq(marketplaceItemsTable.type, "powerup"), eq(marketplaceItemsTable.isActive, true)));
+
+    const eligible = allPowerups.filter(p =>
+      ["fifty_fifty", "extra_time", "skip_question", "double_score", "freeze_timer"].includes(p.effect ?? "")
+    );
+
+    if (eligible.length === 0) {
+      res.status(404).json({ error: "No powerups available" });
+      return;
+    }
+
+    const randomPowerup = eligible[Math.floor(Math.random() * eligible.length)]!;
+
+    // Add to user inventory
+    const [existing] = await db.select().from(userInventoryTable)
+      .where(and(eq(userInventoryTable.userId, userId), eq(userInventoryTable.itemId, randomPowerup.id)));
+
+    if (existing) {
+      await db.update(userInventoryTable)
+        .set({ quantity: existing.quantity + 1 })
+        .where(eq(userInventoryTable.id, existing.id));
+    } else {
+      await db.insert(userInventoryTable).values({
+        userId, itemId: randomPowerup.id, quantity: 1,
+      });
+    }
+
+    res.json({
+      powerup: {
+        name: randomPowerup.name,
+        emoji: randomPowerup.emoji,
+        effect: randomPowerup.effect,
+      },
+    });
+  } catch (err) {
+    req.log.error({ err }, "Failed to award watch-ad powerup");
     res.status(500).json({ error: "Internal server error" });
   }
 });

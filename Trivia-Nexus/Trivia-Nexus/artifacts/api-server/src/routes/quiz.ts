@@ -181,7 +181,8 @@ router.post("/quiz/:sessionId/answer", async (req, res) => {
     }
 
     const correct = scoreAnswer(question, selectedAnswer, answerData);
-    const pointsEarned = correct ? POINTS_PER_CORRECT : 0;
+    const doubleScore = req.body.doubleScore === true && correct;
+    const pointsEarned = correct ? (doubleScore ? POINTS_PER_CORRECT * 2 : POINTS_PER_CORRECT) : 0;
     const newScore = session.score + pointsEarned;
     const newCorrect = session.correctAnswers + (correct ? 1 : 0);
     const newIdx = session.currentQuestionIndex + 1;

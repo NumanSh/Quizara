@@ -11,6 +11,8 @@ import {
   Minus, Plus, Shield, Zap, XCircle, Hourglass,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import PowerUpBar, { type PowerUpItem } from "@/components/PowerUpBar";
+import PreGamePowerUpModal from "@/components/PreGamePowerUpModal";
 
 type Phase =
   | "lobby"
@@ -139,6 +141,15 @@ export default function Arena() {
   const [gameResult, setGameResult] = useState<{ winner: string | null; scores: Record<string, number> } | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // ── Power-up state ──────────────────────────────────────────────────────────
+  const [showArenaPreGame, setShowArenaPreGame] = useState(false);
+  const [powerUpInventory, setPowerUpInventory] = useState<PowerUpItem[]>([]);
+  const [arenaHiddenOptions, setArenaHiddenOptions] = useState<number[]>([]);
+  const [arenaUsedEffects, setArenaUsedEffects] = useState<Set<string>>(new Set());
+  const [arenaShieldActive, setArenaShieldActive] = useState(false);
+  const [arenaDoubleScore, setArenaDoubleScore] = useState(0);
+  // ────────────────────────────────────────────────────────────────────────────
+
   const sendWs = useCallback((data: object) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(data));
@@ -229,6 +240,21 @@ export default function Arena() {
           setQuestions(qs);
           setAllScores({});
           setPhase("game");
+          // Fetch inventory and show pre-game modal
+          if (profile?.id) {
+            fetch("/api/marketplace/inventory", { credentials: "include" })
+              .then(r => r.json())
+              .then(data => {
+                const pus = (Array.isArray(data) ? data : []).filter(
+                  (i: any) => i.type === "powerup" && i.quantity > 0 &&
+                    ["fifty_fifty", "shield", "steal_question", "double_score"].includes(i.effect)
+                );
+                setPowerUpInventory(pus.map((i: any) => ({
+                  itemId: i.itemId, effect: i.effect, emoji: i.emoji, name: i.name, quantity: i.quantity,
+                })));
+              }).catch(() => {});
+          }
+          setShowArenaPreGame(true);
           break;
         }
 
@@ -239,9 +265,51 @@ export default function Arena() {
           setAnswerState(freshAnswerState());
           setOpponentAnswered(false);
           setQuestionResult(null);
+          setArenaHiddenOptions([]);
+          setArenaUsedEffects(new Set());
+          setShowArenaPreGame(false); // dismiss pre-game modal if still open
           startTimer();
           break;
         }
+
+        case "POWER_UP_RESULT": {
+          const { effect } = msg;
+          if (effect === "fifty_fifty" && msg.eliminatedOptions) {
+            setArenaHiddenOptions(msg.eliminatedOptions);
+            setArenaUsedEffects(prev => new Set([...prev, effect]));
+            setPowerUpInventory(prev => {
+              const updated = prev.map(p => p.effect === effect ? { ...p, quantity: p.quantity - 1 } : p);
+              return updated.filter(p => p.quantity > 0);
+            });
+            toast({ title: "✂️ 50/50 activated!" });
+          } else if (effect === "shield" && msg.active) {
+            setArenaShieldActive(true);
+            setArenaUsedEffects(prev => new Set([...prev, effect]));
+            setPowerUpInventory(prev => prev.map(p => p.effect === effect ? { ...p, quantity: p.quantity - 1 } : p).filter(p => p.quantity > 0));
+            toast({ title: "🛡️ Shield activated!" });
+          } else if (effect === "steal_question") {
+            if (msg.success) {
+              setAllScores(prev => ({ ...prev, [profile?.id ?? ""]: msg.newScore }));
+              setPowerUpInventory(prev => prev.map(p => p.effect === effect ? { ...p, quantity: p.quantity - 1 } : p).filter(p => p.quantity > 0));
+              toast({ title: `🎯 Stole ${msg.pointsStolen} pts from ${msg.targetUsername}!` });
+            } else {
+              const reason = msg.reason === "blocked" ? "Their shield blocked it!" : msg.reason === "no_points" ? "Opponent had no points to steal" : "Steal failed";
+              toast({ title: "🎯 Steal failed", description: reason, variant: "destructive" });
+            }
+          }
+          break;
+        }
+
+        case "SHIELD_TRIGGERED":
+          setArenaShieldActive(false);
+          toast({ title: `🛡️ Shield blocked ${msg.fromUsername}'s steal!` });
+          break;
+
+        case "POWER_UP_RECEIVED":
+          if (msg.effect === "steal_question") {
+            toast({ title: `🎯 ${msg.fromUsername} stole ${msg.pointsStolen} pts from you!`, variant: "destructive" });
+          }
+          break;
 
         // Server acks our answer — we wait for opponent
         case "ANSWER_ACK": {
@@ -333,6 +401,18 @@ export default function Arena() {
     sendWs({ type: "ANSWER", questionIndex: currentQIdx, selectedAnswer: index });
   };
 
+  const handleArenaPowerUp = (itemId: string, effect: string) => {
+    const q = questions[currentQIdx];
+    if (!q) return;
+    if (effect === "steal_question") {
+      const target = opponents[0];
+      if (!target) return;
+      sendWs({ type: "USE_POWER_UP", effect, itemId, questionId: q.id, targetUserId: target.userId });
+    } else {
+      sendWs({ type: "USE_POWER_UP", effect, itemId, questionId: q.id });
+    }
+  };
+
   const handleCopyCode = () => {
     navigator.clipboard.writeText(roomCode).catch(() => {});
     setCopied(true);
@@ -393,6 +473,18 @@ export default function Arena() {
 
   return (
     <div className="flex-1 w-full max-w-2xl mx-auto p-4 md:p-6 space-y-4">
+
+      {/* Pre-game power-up modal for Arena */}
+      <PreGamePowerUpModal
+        isOpen={showArenaPreGame && phase === "game"}
+        onPlay={(pus) => {
+          if (pus.length > 0) setPowerUpInventory(pus);
+          setShowArenaPreGame(false);
+        }}
+        isAuthenticated={!!profile?.id}
+        allowedEffects={["fifty_fifty", "shield", "steal_question", "double_score"]}
+        theme="arena"
+      />
 
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -861,9 +953,34 @@ export default function Arena() {
             <p className="text-base font-semibold leading-snug">{q.question}</p>
           </div>
 
+          {/* Power-up bar (only when not yet answered) */}
+          {!answerState.submitted && !answerState.revealed && powerUpInventory.length > 0 && (
+            <PowerUpBar
+              powerUps={powerUpInventory}
+              usedEffects={arenaUsedEffects}
+              doubleScoreRemaining={arenaDoubleScore}
+              shieldActive={arenaShieldActive}
+              frozenTimer={false}
+              onUse={handleArenaPowerUp}
+              disabled={answerState.submitted || answerState.revealed}
+              allowedEffects={["fifty_fifty", "shield", "steal_question", "double_score"]}
+            />
+          )}
+
           {/* Options */}
           <div className="grid grid-cols-1 gap-2.5 relative">
             {q.options.map((opt, i) => {
+              const isHidden = arenaHiddenOptions.includes(i) && !answerState.revealed;
+              if (isHidden) return (
+                <div key={i} className="w-full rounded-xl border-2 border-border/20 px-4 py-3.5 opacity-20 cursor-not-allowed select-none">
+                  <div className="flex items-center gap-3">
+                    <span className="h-6 w-6 rounded-full bg-muted text-muted-foreground flex items-center justify-center text-xs font-bold shrink-0">
+                      {["A", "B", "C", "D"][i]}
+                    </span>
+                    <span className="text-transparent">—</span>
+                  </div>
+                </div>
+              );
               const isSelected = answerState.selected === i;
               const isCorrect = answerState.revealed && i === answerState.correctAnswer;
               const isWrong = answerState.revealed && isSelected && !isCorrect;

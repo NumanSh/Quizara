@@ -10,6 +10,9 @@ import { useAuth } from "@workspace/replit-auth-web";
 import { useHearts } from "@/hooks/useHearts";
 import { HeartsDisplay } from "@/components/HeartsDisplay";
 import { WatchAdModal } from "@/components/WatchAdModal";
+import PowerUpBar, { type PowerUpItem } from "@/components/PowerUpBar";
+import PreGamePowerUpModal from "@/components/PreGamePowerUpModal";
+import { useToast } from "@/hooks/use-toast";
 
 // Shuffle an array without mutating
 function shuffleArray<T>(arr: T[]): T[] {
@@ -33,6 +36,7 @@ export default function Quiz() {
 
   const { user } = useAuth();
   const { hearts, maxHearts, nextRefillMs, canPlay, deductHeart, watchAd } = useHearts(!!user?.id);
+  const { toast } = useToast();
 
   const { data: session, isLoading, refetch } = useGetQuizSession(sessionId || "", {
     query: {
@@ -44,6 +48,16 @@ export default function Quiz() {
   const [timeLeft, setTimeLeft] = useState(30);
   const [selectedOption, setSelectedOption] = useState<number | null>(null);
   const [answerResult, setAnswerResult] = useState<any>(null);
+
+  // ── Power-up state ──────────────────────────────────────────────────────────
+  const [showPreGame, setShowPreGame] = useState(true);
+  const [powerUpInventory, setPowerUpInventory] = useState<PowerUpItem[]>([]);
+  const [hiddenOptions, setHiddenOptions] = useState<number[]>([]);
+  const [usedEffects, setUsedEffects] = useState<Set<string>>(new Set());
+  const [doubleScoreRemaining, setDoubleScoreRemaining] = useState(0);
+  const frozenTimerRef = useRef(false);
+  const [frozenTimerDisplay, setFrozenTimerDisplay] = useState(false);
+  // ────────────────────────────────────────────────────────────────────────────
 
   // Level mode state
   const [showLevelOverlay, setShowLevelOverlay] = useState(false);
@@ -64,6 +78,22 @@ export default function Quiz() {
   // Hotspot state
   const [hotspotClick, setHotspotClick] = useState<{ x: number; y: number } | null>(null);
   const hotspotImgRef = useRef<HTMLImageElement>(null);
+
+  // Fetch power-up inventory when user is known
+  useEffect(() => {
+    if (!user?.id) return;
+    fetch("/api/marketplace/inventory", { credentials: "include" })
+      .then(r => r.json())
+      .then(data => {
+        const pus = (Array.isArray(data) ? data : []).filter(
+          (i: any) => i.type === "powerup" && i.quantity > 0 &&
+            ["fifty_fifty", "extra_time", "skip_question", "double_score", "freeze_timer"].includes(i.effect)
+        );
+        setPowerUpInventory(pus.map((i: any) => ({
+          itemId: i.itemId, effect: i.effect, emoji: i.emoji, name: i.name, quantity: i.quantity,
+        })));
+      }).catch(() => {});
+  }, [user?.id]);
 
   const submitAnswer = useSubmitAnswer({
     mutation: {
@@ -117,13 +147,17 @@ export default function Quiz() {
 
     setSelectedOption(null);
     setHotspotClick(null);
+    // Reset per-question power-up state
+    setHiddenOptions([]);
+    setUsedEffects(new Set());
   }, [question?.id]);
 
-  // Timer logic
+  // Timer logic (respects pre-game modal and freeze power-up)
   useEffect(() => {
-    if (!question || answerResult) return;
+    if (!question || answerResult || showPreGame) return;
     setTimeLeft(30);
     const interval = setInterval(() => {
+      if (frozenTimerRef.current) return;
       setTimeLeft((prev) => {
         if (prev <= 1) {
           clearInterval(interval);
@@ -134,7 +168,7 @@ export default function Quiz() {
       });
     }, 1000);
     return () => clearInterval(interval);
-  }, [question?.id, answerResult]);
+  }, [question?.id, answerResult, showPreGame]);
 
   const handleTimeUp = useCallback(() => {
     if (answerResult) return;
@@ -151,12 +185,68 @@ export default function Quiz() {
     }
   }, [question?.id, answerResult, sessionId]);
 
+  // Power-up activation handler
+  const handlePowerUp = async (itemId: string, effect: string) => {
+    if (effect === "fifty_fifty") {
+      try {
+        const res = await fetch("/api/powerups/fifty-fifty", {
+          method: "POST", credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ questionId: question?.id, itemId }),
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.eliminatedOptions?.length) {
+          setHiddenOptions(data.eliminatedOptions);
+          setPowerUpInventory(prev => prev.map(p => p.itemId === itemId ? { ...p, quantity: p.quantity - 1 } : p).filter(p => p.quantity > 0));
+          setUsedEffects(prev => new Set([...prev, effect]));
+          toast({ title: "✂️ 50/50 activated!", description: "2 wrong answers removed." });
+        }
+      } catch {}
+      return;
+    }
+    // Consume item
+    try {
+      const res = await fetch("/api/marketplace/use-item", {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itemId }),
+      });
+      if (!res.ok) return;
+      setPowerUpInventory(prev => prev.map(p => p.itemId === itemId ? { ...p, quantity: p.quantity - 1 } : p).filter(p => p.quantity > 0));
+    } catch { return; }
+
+    switch (effect) {
+      case "extra_time":
+        setTimeLeft(t => t + 15);
+        toast({ title: "⏰ +15 seconds added!" });
+        break;
+      case "skip_question":
+        toast({ title: "⏭️ Question skipped!" });
+        handleTimeUp();
+        return;
+      case "double_score":
+        setDoubleScoreRemaining(3);
+        toast({ title: "✖️ Double Score active for 3 questions!" });
+        break;
+      case "freeze_timer":
+        frozenTimerRef.current = true;
+        setFrozenTimerDisplay(true);
+        toast({ title: "❄️ Timer frozen for 10 seconds!" });
+        setTimeout(() => { frozenTimerRef.current = false; setFrozenTimerDisplay(false); }, 10000);
+        break;
+    }
+    setUsedEffects(prev => new Set([...prev, effect]));
+  };
+
   const handleOptionSelect = (index: number) => {
     if (selectedOption !== null || answerResult || submitAnswer.isPending) return;
     setSelectedOption(index);
+    const useDouble = doubleScoreRemaining > 0;
+    if (useDouble) setDoubleScoreRemaining(d => d - 1);
     submitAnswer.mutate({
       sessionId: sessionId || "",
-      data: { questionId: question?.id || "", selectedAnswer: index }
+      data: { questionId: question?.id || "", selectedAnswer: index, ...(useDouble ? { doubleScore: true } : {}) } as any,
     });
   };
 
@@ -312,6 +402,21 @@ export default function Quiz() {
       setLocation(`/worlds/${worldId}`);
     } finally { setStartingNext(false); }
   };
+
+  // Pre-game power-up modal (shown before first question)
+  if (showPreGame && !isLoading && session && session.status !== "completed" && !showLevelOverlay) {
+    return (
+      <PreGamePowerUpModal
+        isOpen={true}
+        onPlay={(pus) => {
+          if (pus.length > 0) setPowerUpInventory(pus);
+          setShowPreGame(false);
+        }}
+        isAuthenticated={!!user?.id}
+        allowedEffects={["fifty_fifty", "extra_time", "skip_question", "double_score", "freeze_timer"]}
+      />
+    );
+  }
 
   if (isLoading || !session) {
     return (
@@ -559,7 +664,29 @@ export default function Quiz() {
         </div>
       </div>
 
-      <Progress value={progress} className="h-2 mb-8 bg-muted" />
+      <Progress value={progress} className="h-2 mb-4 bg-muted" />
+
+      {/* Power-up bar */}
+      {!answerResult && (
+        <div className="mb-4">
+          {(frozenTimerDisplay || doubleScoreRemaining > 0) && (
+            <div className="flex items-center gap-2 justify-center mb-2 flex-wrap text-xs font-semibold">
+              {frozenTimerDisplay && <span className="px-2 py-0.5 rounded-full bg-sky-500/15 text-sky-400 border border-sky-500/30 animate-pulse">❄️ Timer Frozen</span>}
+              {doubleScoreRemaining > 0 && <span className="px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/30">✖️ 2× Score ({doubleScoreRemaining} left)</span>}
+            </div>
+          )}
+          <PowerUpBar
+            powerUps={powerUpInventory}
+            usedEffects={usedEffects}
+            doubleScoreRemaining={doubleScoreRemaining}
+            shieldActive={false}
+            frozenTimer={frozenTimerDisplay}
+            onUse={handlePowerUp}
+            disabled={!!answerResult || submitAnswer.isPending}
+            allowedEffects={["fifty_fifty", "extra_time", "skip_question", "double_score", "freeze_timer"]}
+          />
+        </div>
+      )}
 
       {/* Question Card */}
       <div className="bg-card border border-border rounded-2xl p-6 md:p-8 shadow-lg mb-6 relative overflow-hidden">
@@ -606,6 +733,13 @@ export default function Quiz() {
       {(qType === "multiple_choice" || qType === "true_false" || qType === "fill_blank" || qType === "audio" || qType === "image") && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
           {opts.map((option: string, index: number) => {
+            const isHidden = hiddenOptions.includes(index) && !answerResult;
+            if (isHidden) return (
+              <div key={index} className="relative text-left p-6 rounded-xl border-2 border-border/20 bg-muted/10 opacity-25 cursor-not-allowed select-none">
+                <span className="text-lg font-medium text-transparent select-none">—</span>
+              </div>
+            );
+
             const isSelected = selectedOption === index;
             const isCorrect = answerResult?.correctAnswer === index;
             const isWrongSelected = isSelected && !answerResult?.correct;

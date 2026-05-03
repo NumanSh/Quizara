@@ -1,7 +1,7 @@
 import { type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
-import { db, questionsTable, categoriesTable, arenaStatsTable } from "@workspace/db";
-import { eq, sql } from "drizzle-orm";
+import { db, questionsTable, categoriesTable, arenaStatsTable, userInventoryTable, marketplaceItemsTable } from "@workspace/db";
+import { eq, sql, and } from "drizzle-orm";
 import { logger } from "./logger";
 import { checkAndAwardBadges } from "../routes/badgeChecker";
 
@@ -52,6 +52,8 @@ export interface ArenaRoom {
   questionStartTime: number;
   questionAnswers: Map<string, QuestionAnswer | null>;
   questionTimer: ReturnType<typeof setTimeout> | null;
+  // Power-up state
+  shields: Map<string, boolean>;
 }
 
 // ─── In-memory state ──────────────────────────────────────────────────────────
@@ -146,6 +148,7 @@ function createMatchmadeRoom(p1: ArenaPlayer, p2: ArenaPlayer) {
     questionStartTime: 0,
     questionAnswers: new Map(),
     questionTimer: null,
+    shields: new Map(),
   };
   rooms.set(roomId, room);
   playerToRoom.set(p1.userId, roomId);
@@ -184,6 +187,7 @@ function createFriendsRoom(creator: ArenaPlayer, questionCount: number): ArenaRo
     questionStartTime: 0,
     questionAnswers: new Map(),
     questionTimer: null,
+    shields: new Map(),
   };
   rooms.set(roomId, room);
   friendRoomsByCode.set(code, roomId);
@@ -590,8 +594,91 @@ function handleMessage(player: ArenaPlayer, raw: string) {
     return;
   }
 
+  if (type === "USE_POWER_UP") {
+    const room = rooms.get(playerToRoom.get(player.userId) ?? "");
+    if (!room || room.phase !== "game") return;
+    handlePowerUp(room, player, msg).catch(err => logger.error({ err }, "Power-up error"));
+    return;
+  }
+
   if (type === "LEAVE") {
     handleDisconnect(player);
+  }
+}
+
+async function consumeInventoryItem(userId: string, itemId: string): Promise<boolean> {
+  const [entry] = await db.select().from(userInventoryTable)
+    .where(and(eq(userInventoryTable.userId, userId), eq(userInventoryTable.itemId, itemId)));
+  if (!entry || entry.quantity < 1) return false;
+  if (entry.quantity === 1) {
+    await db.delete(userInventoryTable).where(eq(userInventoryTable.id, entry.id));
+  } else {
+    await db.update(userInventoryTable).set({ quantity: entry.quantity - 1 }).where(eq(userInventoryTable.id, entry.id));
+  }
+  return true;
+}
+
+async function handlePowerUp(room: ArenaRoom, player: ArenaPlayer, msg: any) {
+  const { effect, itemId, questionId, targetUserId } = msg;
+
+  // fifty_fifty: return 2 wrong option indices for the current question
+  if (effect === "fifty_fifty") {
+    const consumed = await consumeInventoryItem(player.userId, itemId);
+    if (!consumed) { send(player.ws, { type: "ERROR", message: "Power-up not in inventory" }); return; }
+
+    // Find question by id in room questions
+    const q = room.questions.find(q => q.id === questionId) ?? room.questions[room.currentQuestionIndex];
+    if (!q) { send(player.ws, { type: "POWER_UP_RESULT", effect: "fifty_fifty", eliminatedOptions: [] }); return; }
+
+    const wrongIndices = q.options.map((_, i) => i).filter(i => i !== q.correctAnswer);
+    const shuffled = wrongIndices.sort(() => Math.random() - 0.5);
+    const eliminatedOptions = shuffled.slice(0, 2).sort((a, b) => a - b);
+
+    send(player.ws, { type: "POWER_UP_RESULT", effect: "fifty_fifty", eliminatedOptions });
+    return;
+  }
+
+  // shield: protect this player from the next steal
+  if (effect === "shield") {
+    const consumed = await consumeInventoryItem(player.userId, itemId);
+    if (!consumed) { send(player.ws, { type: "ERROR", message: "Power-up not in inventory" }); return; }
+
+    room.shields.set(player.userId, true);
+    send(player.ws, { type: "POWER_UP_RESULT", effect: "shield", active: true });
+    return;
+  }
+
+  // steal_question: steal opponent's points for the current question
+  if (effect === "steal_question") {
+    const consumed = await consumeInventoryItem(player.userId, itemId);
+    if (!consumed) { send(player.ws, { type: "ERROR", message: "Power-up not in inventory" }); return; }
+
+    const target = room.players.find(p => p.userId === targetUserId);
+    if (!target) { send(player.ws, { type: "POWER_UP_RESULT", effect: "steal_question", success: false, reason: "Target not found" }); return; }
+
+    // Check if target has shield
+    if (room.shields.get(target.userId)) {
+      room.shields.set(target.userId, false);
+      send(player.ws, { type: "POWER_UP_RESULT", effect: "steal_question", success: false, reason: "blocked" });
+      send(target.ws, { type: "SHIELD_TRIGGERED", fromUsername: player.username });
+      return;
+    }
+
+    // Check if target answered correctly this question
+    const targetAnswer = room.questionAnswers.get(target.userId);
+    if (!targetAnswer || !targetAnswer.correct || targetAnswer.points <= 0) {
+      send(player.ws, { type: "POWER_UP_RESULT", effect: "steal_question", success: false, reason: "no_points" });
+      return;
+    }
+
+    // Steal the points (give to stealer, don't remove from target — too punishing)
+    const stolenPoints = targetAnswer.points;
+    const newScore = (room.scores.get(player.userId) ?? 0) + stolenPoints;
+    room.scores.set(player.userId, newScore);
+
+    send(player.ws, { type: "POWER_UP_RESULT", effect: "steal_question", success: true, pointsStolen: stolenPoints, targetUsername: target.username, newScore });
+    send(target.ws, { type: "POWER_UP_RECEIVED", effect: "steal_question", fromUsername: player.username, pointsStolen: stolenPoints });
+    return;
   }
 }
 

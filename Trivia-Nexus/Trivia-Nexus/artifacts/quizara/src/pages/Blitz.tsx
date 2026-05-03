@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
+import PowerUpBar, { type PowerUpItem } from "@/components/PowerUpBar";
+import PreGamePowerUpModal from "@/components/PreGamePowerUpModal";
 
 const BLITZ_DURATION = 90;
 
@@ -61,6 +63,14 @@ export default function Blitz() {
   const { isAuthenticated, user } = useAuth();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+
+  // ── Power-up state ──────────────────────────────────────────────────────────
+  const [showPreGameModal, setShowPreGameModal] = useState(false);
+  const [powerUpInventory, setPowerUpInventory] = useState<PowerUpItem[]>([]);
+  const [hiddenOptions, setHiddenOptions] = useState<number[]>([]);
+  const [usedEffects, setUsedEffects] = useState<Set<string>>(new Set());
+  const [doubleScoreRemaining, setDoubleScoreRemaining] = useState(0);
+  // ────────────────────────────────────────────────────────────────────────────
 
   const [state, setState] = useState<BlitzState>("idle");
   const [todayInfo, setTodayInfo] = useState<TodayInfo | null>(null);
@@ -126,6 +136,21 @@ export default function Blitz() {
     return () => stopTimer();
   }, [stopTimer]);
 
+  async function fetchInventory() {
+    if (!isAuthenticated) return;
+    try {
+      const res = await fetch("/api/marketplace/inventory", { credentials: "include" });
+      const data = await res.json();
+      const pus = (Array.isArray(data) ? data : []).filter(
+        (i: any) => i.type === "powerup" && i.quantity > 0 &&
+          ["fifty_fifty", "extra_time", "skip_question", "double_score"].includes(i.effect)
+      );
+      setPowerUpInventory(pus.map((i: any) => ({
+        itemId: i.itemId, effect: i.effect, emoji: i.emoji, name: i.name, quantity: i.quantity,
+      })));
+    } catch {}
+  }
+
   async function fetchToday() {
     try {
       const res = await fetch("/api/blitz/today", { credentials: "include" });
@@ -139,11 +164,81 @@ export default function Blitz() {
     }
   }
 
+  async function handleBlitzPowerUp(itemId: string, effect: string) {
+    const q = questions[currentIdx];
+    if (!q) return;
+
+    if (effect === "fifty_fifty") {
+      try {
+        const res = await fetch("/api/powerups/fifty-fifty", {
+          method: "POST", credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ questionId: q.id, itemId }),
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.eliminatedOptions?.length) {
+          setHiddenOptions(data.eliminatedOptions);
+          setPowerUpInventory(prev => prev.map(p => p.itemId === itemId ? { ...p, quantity: p.quantity - 1 } : p).filter(p => p.quantity > 0));
+          setUsedEffects(prev => new Set([...prev, effect]));
+          toast({ title: "✂️ 50/50 activated!", description: "2 wrong answers removed." });
+        }
+      } catch {}
+      return;
+    }
+
+    // Consume item for other power-ups
+    try {
+      const res = await fetch("/api/marketplace/use-item", {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itemId }),
+      });
+      if (!res.ok) return;
+      setPowerUpInventory(prev => prev.map(p => p.itemId === itemId ? { ...p, quantity: p.quantity - 1 } : p).filter(p => p.quantity > 0));
+    } catch { return; }
+
+    switch (effect) {
+      case "extra_time":
+        setTimeLeft(t => Math.min(t + 15, BLITZ_DURATION + 15));
+        toast({ title: "⏰ +15 seconds added!" });
+        break;
+      case "skip_question": {
+        setUsedEffects(prev => new Set([...prev, effect]));
+        setFeedback(null);
+        setSelectedOption(null);
+        const nextIdx = currentIdx + 1;
+        setHiddenOptions([]);
+        setUsedEffects(new Set());
+        if (nextIdx >= questions.length) {
+          completeBlitz(attemptId!);
+        } else {
+          setCurrentIdx(nextIdx);
+        }
+        toast({ title: "⏭️ Question skipped!" });
+        return;
+      }
+      case "double_score":
+        setDoubleScoreRemaining(3);
+        toast({ title: "✖️ Double Score for next 3 questions!" });
+        break;
+    }
+    setUsedEffects(prev => new Set([...prev, effect]));
+  }
+
   async function handleStart() {
     if (!isAuthenticated) {
       setLocation("/login");
       return;
     }
+
+    // Show pre-game modal first (fetch inventory in background)
+    fetchInventory();
+    setShowPreGameModal(true);
+  }
+
+  async function doStart() {
+    setShowPreGameModal(false);
     setState("loading");
     completedRef.current = false;
     try {
@@ -207,15 +302,19 @@ export default function Blitz() {
       setAnsweredCount((p) => p + 1);
       if (data.isCorrect) {
         setCorrectCount((p) => p + 1);
-        setScore((p) => p + data.pointsEarned);
+        const multiplier = doubleScoreRemaining > 0 ? 2 : 1;
+        if (doubleScoreRemaining > 0) setDoubleScoreRemaining(d => d - 1);
+        setScore((p) => p + data.pointsEarned * multiplier);
         setTotalCoins((p) => p + data.coinsEarned);
-        setTotalPoints((p) => p + data.pointsEarned);
+        setTotalPoints((p) => p + data.pointsEarned * multiplier);
       }
 
       setTimeout(() => {
         setFeedback(null);
         setSelectedOption(null);
         setIsSubmitting(false);
+        setHiddenOptions([]);
+        setUsedEffects(new Set());
         const nextIdx = currentIdx + 1;
         if (nextIdx >= questions.length) {
           completeBlitz(attemptId!);
@@ -247,6 +346,21 @@ export default function Blitz() {
           Sign In to Play
         </Button>
       </div>
+    );
+  }
+
+  if (showPreGameModal) {
+    return (
+      <PreGamePowerUpModal
+        isOpen={true}
+        onPlay={(pus) => {
+          if (pus.length > 0) setPowerUpInventory(pus);
+          doStart();
+        }}
+        isAuthenticated={isAuthenticated}
+        allowedEffects={["fifty_fifty", "extra_time", "skip_question", "double_score"]}
+        theme="blitz"
+      />
     );
   }
 
@@ -286,8 +400,36 @@ export default function Blitz() {
           <p className="text-lg font-semibold text-foreground leading-snug">{q.question}</p>
         </div>
 
+        {/* Power-up bar */}
+        {feedback === null && (
+          <div>
+            {doubleScoreRemaining > 0 && (
+              <div className="flex justify-center mb-2">
+                <span className="px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/30 text-xs font-semibold">✖️ 2× Score ({doubleScoreRemaining} left)</span>
+              </div>
+            )}
+            <PowerUpBar
+              powerUps={powerUpInventory}
+              usedEffects={usedEffects}
+              doubleScoreRemaining={doubleScoreRemaining}
+              shieldActive={false}
+              frozenTimer={false}
+              onUse={handleBlitzPowerUp}
+              disabled={feedback !== null || isSubmitting}
+              allowedEffects={["fifty_fifty", "extra_time", "skip_question", "double_score"]}
+            />
+          </div>
+        )}
+
         <div className="grid grid-cols-1 gap-3">
           {q.options.map((opt, idx) => {
+            const isHidden = hiddenOptions.includes(idx) && feedback === null;
+            if (isHidden) return (
+              <div key={idx} className="w-full px-5 py-4 rounded-xl border border-white/5 bg-white/3 opacity-20 cursor-not-allowed select-none">
+                <span className="text-transparent">—</span>
+              </div>
+            );
+
             const isSelected = selectedOption === idx;
             const isCorrectOpt = feedback !== null && idx === feedback.correctAnswer;
             const isWrongOpt = feedback !== null && isSelected && !feedback.isCorrect;
