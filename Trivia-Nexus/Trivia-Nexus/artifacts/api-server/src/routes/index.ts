@@ -15,6 +15,7 @@ import battlepassRouter from "./battlepass";
 import badgesRouter from "./badges";
 import challengesRouter from "./challenges";
 import wheelRouter from "./wheel";
+import blitzRouter from "./blitz";
 
 const router: IRouter = Router();
 
@@ -30,6 +31,7 @@ router.use(battlepassRouter);
 router.use(badgesRouter);
 router.use(challengesRouter);
 router.use(wheelRouter);
+router.use(blitzRouter);
 router.use(leaderboardRouter);
 router.use(profileRouter);
 router.use(adminRouter);

@@ -24,6 +24,7 @@ import Arena from "@/pages/Arena";
 import BattlePass from "@/pages/BattlePass";
 import Challenge from "@/pages/Challenge";
 import LuckyWheel from "@/pages/LuckyWheel";
+import Blitz from "@/pages/Blitz";
 
 const queryClient = new QueryClient();
 
@@ -62,6 +63,7 @@ function AppLayout() {
           <Route path="/battlepass" component={BattlePass} />
           <Route path="/challenge/:code" component={Challenge} />
           <Route path="/wheel" component={LuckyWheel} />
+          <Route path="/blitz" component={Blitz} />
           <Route component={NotFound} />
         </Switch>
       </main>

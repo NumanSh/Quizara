@@ -2,7 +2,7 @@ import React from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useGetProfile, getGetProfileQueryKey } from "@workspace/api-client-react";
-import { Home, LayoutGrid, Trophy, User, Settings, Zap, ShoppingBag, Gem, Swords, Layers, Sparkles } from "lucide-react";
+import { Home, LayoutGrid, Trophy, User, Settings, Zap, ShoppingBag, Gem, Swords, Layers, Sparkles, Flame } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS: { href: string; label: string; icon: React.ElementType; highlight?: boolean }[] = [
@@ -10,6 +10,7 @@ const NAV_ITEMS: { href: string; label: string; icon: React.ElementType; highlig
   { href: "/categories", label: "Categories", icon: LayoutGrid },
   { href: "/leaderboard", label: "Leaderboard", icon: Trophy },
   { href: "/arena", label: "Arena", icon: Swords },
+  { href: "/blitz", label: "Daily Blitz", icon: Flame, highlight: true },
   { href: "/battlepass", label: "Battle Pass", icon: Layers, highlight: true },
   { href: "/wheel", label: "Lucky Wheel", icon: Sparkles, highlight: true },
   { href: "/marketplace", label: "Marketplace", icon: ShoppingBag },

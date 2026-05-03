@@ -195,3 +195,30 @@ export type LevelProgress = typeof levelProgressTable.$inferSelect;
 export type UserBattlePass = typeof userBattlePassTable.$inferSelect;
 export type Badge = typeof badgesTable.$inferSelect;
 export type UserBadge = typeof userBadgesTable.$inferSelect;
+
+export const blitzDailyPoolTable = pgTable("blitz_daily_pool", {
+  date: varchar("date", { length: 10 }).primaryKey(),
+  questionIds: jsonb("question_ids").$type<string[]>().notNull().default([]),
+  createdBy: varchar("created_by").references(() => usersTable.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const userBlitzAttemptsTable = pgTable("user_blitz_attempts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  blitzDate: varchar("blitz_date", { length: 10 }).notNull(),
+  status: varchar("status", { length: 20 }).notNull().default("in_progress"),
+  questionIds: jsonb("question_ids").$type<string[]>().notNull().default([]),
+  answeredCount: integer("answered_count").notNull().default(0),
+  correctCount: integer("correct_count").notNull().default(0),
+  score: integer("score").notNull().default(0),
+  coinsEarned: integer("coins_earned").notNull().default(0),
+  pointsEarned: integer("points_earned").notNull().default(0),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+}, (table) => [
+  uniqueIndex("uba_user_date_idx").on(table.userId, table.blitzDate),
+]);
+
+export type BlitzDailyPool = typeof blitzDailyPoolTable.$inferSelect;
+export type UserBlitzAttempt = typeof userBlitzAttemptsTable.$inferSelect;
