@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { StartQuizBody, SubmitAnswerBody } from "@workspace/api-zod";
 import { awardBattlePassXp, CORRECT_ANSWER_XP, QUIZ_COMPLETE_XP } from "./xpHelper";
 import { checkAndAwardBadges } from "./badgeChecker";
+import { updateDailyTaskProgress } from "./dailyTasks";
 
 const router: IRouter = Router();
 
@@ -222,6 +223,16 @@ router.post("/quiz/:sessionId/answer", async (req, res) => {
       if (xpToAward > 0) {
         awardBattlePassXp(session.userId, xpToAward).catch(() => {});
       }
+    }
+
+    // Update daily task progress on quiz completion
+    if (isLastQuestion && session.userId) {
+      updateDailyTaskProgress(session.userId, {
+        categoryId: session.categoryId,
+        score: newScore,
+        correctAnswers: newCorrect,
+        totalQuestions: questionIds.length,
+      }).catch(() => {});
     }
 
     // Check badges

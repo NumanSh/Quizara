@@ -16,6 +16,7 @@ import badgesRouter from "./badges";
 import challengesRouter from "./challenges";
 import wheelRouter from "./wheel";
 import blitzRouter from "./blitz";
+import dailyTasksRouter from "./dailyTasks";
 
 const router: IRouter = Router();
 
@@ -32,6 +33,7 @@ router.use(badgesRouter);
 router.use(challengesRouter);
 router.use(wheelRouter);
 router.use(blitzRouter);
+router.use(dailyTasksRouter);
 router.use(leaderboardRouter);
 router.use(profileRouter);
 router.use(adminRouter);

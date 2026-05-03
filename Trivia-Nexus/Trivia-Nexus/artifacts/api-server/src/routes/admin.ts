@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import { categoriesTable, questionsTable, profilesTable, quizSessionsTable, usersTable, settingsTable, marketplaceItemsTable } from "@workspace/db";
 import { eq, sql, desc } from "drizzle-orm";
 import { AdminCreateCategoryBody, AdminCreateQuestionBody } from "@workspace/api-zod";
+import { autoGenerateCategoryTask } from "./dailyTasks";
 
 const router: IRouter = Router();
 
@@ -44,6 +45,7 @@ router.post("/admin/categories", async (req, res) => {
       ...parsed.data,
       nameAr: parsed.data.nameAr ?? parsed.data.name,
     }).returning();
+    autoGenerateCategoryTask(cat.id, cat.name).catch(() => {});
     res.status(201).json({ ...cat, questionCount: 0 });
   } catch (err) {
     req.log.error({ err }, "Failed to create category");

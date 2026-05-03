@@ -2,7 +2,7 @@ import React from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useGetProfile, getGetProfileQueryKey } from "@workspace/api-client-react";
-import { Home, LayoutGrid, Trophy, User, Settings, Zap, ShoppingBag, Gem, Swords, Layers, Sparkles, Flame } from "lucide-react";
+import { Home, LayoutGrid, Trophy, User, Settings, Zap, ShoppingBag, Gem, Swords, Layers, Sparkles, Flame, ClipboardList } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS: { href: string; label: string; icon: React.ElementType; highlight?: boolean }[] = [
@@ -10,6 +10,7 @@ const NAV_ITEMS: { href: string; label: string; icon: React.ElementType; highlig
   { href: "/categories", label: "Categories", icon: LayoutGrid },
   { href: "/leaderboard", label: "Leaderboard", icon: Trophy },
   { href: "/arena", label: "Arena", icon: Swords },
+  { href: "/tasks", label: "Daily Tasks", icon: ClipboardList, highlight: true },
   { href: "/blitz", label: "Daily Blitz", icon: Flame, highlight: true },
   { href: "/battlepass", label: "Battle Pass", icon: Layers, highlight: true },
   { href: "/wheel", label: "Lucky Wheel", icon: Sparkles, highlight: true },
@@ -120,10 +121,10 @@ export function Sidebar() {
             <Zap className="h-4 w-4 text-yellow-400" />
             <span className="text-xs font-bold text-foreground uppercase tracking-wide">Daily Challenge</span>
           </div>
-          <p className="text-xs text-muted-foreground mb-3">Answer 10 questions to earn your badge</p>
-          <Link href="/categories">
+          <p className="text-xs text-muted-foreground mb-3">Complete today's tasks to earn coins and XP</p>
+          <Link href="/tasks">
             <button className="w-full text-xs font-semibold text-secondary border border-secondary/30 rounded-lg py-2 hover:bg-secondary/10 transition-colors">
-              Start Challenge
+              View Tasks
             </button>
           </Link>
         </div>

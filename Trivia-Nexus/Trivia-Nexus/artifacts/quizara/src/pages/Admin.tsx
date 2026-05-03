@@ -24,12 +24,13 @@ import {
   CheckCircle2, Search, BarChart3, ArrowUp, ArrowDown, Layers,
   ListOrdered, Shuffle, Music, Crosshair, GripVertical, Settings, Eye, EyeOff, KeyRound,
   UserCheck, UserX, Crown, UserRound, Medal, Gamepad2, Gem, Heart, ShoppingBag, ToggleRight,
+  ClipboardList, Zap, Target,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
 type QuestionType = "multiple_choice" | "true_false" | "image" | "fill_blank" | "ordering" | "matching" | "audio" | "hotspot";
-type AdminSection = "overview" | "categories" | "questions" | "users" | "settings" | "badges" | "marketplace";
+type AdminSection = "overview" | "categories" | "questions" | "users" | "settings" | "badges" | "marketplace" | "daily-tasks";
 
 const QUESTION_TYPE_CONFIG: Record<QuestionType, { label: string; icon: any; color: string; description: string }> = {
   multiple_choice: { label: "Multiple Choice", icon: CheckCircle2, color: "text-cyan-400 bg-cyan-500/10 border-cyan-500/30", description: "4 answer options, one correct" },
@@ -438,6 +439,69 @@ export default function Admin() {
     }
   };
 
+  // Daily Tasks state
+  const BLANK_TASK = { title: "", description: "", taskType: "quiz_count", targetValue: 3, rewardCoins: 50, rewardXp: 100, categoryId: "", isActive: true };
+  const [taskItems, setTaskItems] = useState<any[]>([]);
+  const [taskLoading, setTaskLoading] = useState(false);
+  const [taskDialog, setTaskDialog] = useState<{ mode: "create" | "edit"; item?: any } | null>(null);
+  const [taskForm, setTaskForm] = useState({ ...BLANK_TASK });
+  const [taskSaving, setTaskSaving] = useState(false);
+  const [taskDeletePending, setTaskDeletePending] = useState<string | null>(null);
+
+  const fetchTaskItems = async () => {
+    setTaskLoading(true);
+    try {
+      const res = await fetch("/api/admin/daily-tasks");
+      const data = await res.json();
+      setTaskItems(Array.isArray(data) ? data : []);
+    } catch {
+      toast({ title: "Error", description: "Could not load daily tasks", variant: "destructive" });
+    } finally {
+      setTaskLoading(false);
+    }
+  };
+
+  const saveTaskItem = async () => {
+    setTaskSaving(true);
+    const isCreate = taskDialog?.mode === "create";
+    const url = isCreate ? "/api/admin/daily-tasks" : `/api/admin/daily-tasks/${taskDialog?.item?.id}`;
+    try {
+      const payload: any = { ...taskForm, targetValue: Number(taskForm.targetValue), rewardCoins: Number(taskForm.rewardCoins), rewardXp: Number(taskForm.rewardXp) };
+      if (!payload.categoryId) delete payload.categoryId;
+      const res = await fetch(url, { method: isCreate ? "POST" : "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error ?? "Failed"); }
+      await fetchTaskItems();
+      setTaskDialog(null);
+      toast({ title: isCreate ? "Task created" : "Task updated" });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message ?? "Failed to save task", variant: "destructive" });
+    } finally {
+      setTaskSaving(false);
+    }
+  };
+
+  const deleteTaskItem = async (id: string) => {
+    setTaskDeletePending(id);
+    try {
+      await fetch(`/api/admin/daily-tasks/${id}`, { method: "DELETE" });
+      await fetchTaskItems();
+      toast({ title: "Task deleted" });
+    } catch {
+      toast({ title: "Error", description: "Failed to delete", variant: "destructive" });
+    } finally {
+      setTaskDeletePending(null);
+    }
+  };
+
+  const toggleTaskActive = async (item: any) => {
+    try {
+      await fetch(`/api/admin/daily-tasks/${item.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ isActive: !item.isActive }) });
+      await fetchTaskItems();
+    } catch {
+      toast({ title: "Error", variant: "destructive" });
+    }
+  };
+
   // Settings state
   const [currentAdminCode, setCurrentAdminCode] = useState<string | null>(null);
   const [newAdminCode, setNewAdminCode] = useState("");
@@ -646,6 +710,7 @@ export default function Admin() {
   useEffect(() => {
     if (section === "badges" && isAdmin) fetchBadges();
     if (section === "marketplace" && isAdmin) fetchMktItems();
+    if (section === "daily-tasks" && isAdmin) fetchTaskItems();
   }, [section, isAdmin]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const moveOrderingItem = (idx: number, dir: -1 | 1) => {
@@ -702,6 +767,7 @@ export default function Admin() {
             { id: "settings", label: "Settings", icon: Settings },
             { id: "badges", label: "Badges", icon: Medal },
             { id: "marketplace", label: "Marketplace", icon: ShoppingBag },
+            { id: "daily-tasks", label: "Daily Tasks", icon: ClipboardList },
           ].map(({ id, label, icon: Icon }) => (
             <button
               key={id}
@@ -1837,6 +1903,144 @@ export default function Admin() {
             <Button variant="ghost" onClick={() => setMktDialog(null)}>Cancel</Button>
             <Button onClick={saveMktItem} disabled={!mktForm.name || !mktForm.effect || !mktForm.emoji || mktSaving} className="bg-primary text-primary-foreground">
               {mktSaving ? "Saving..." : mktDialog?.mode === "create" ? "Create" : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Daily Tasks Section */}
+      {section === "daily-tasks" && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-bold">Daily Tasks</h2>
+              <p className="text-sm text-muted-foreground">Tasks shown to players each day — resets at midnight</p>
+            </div>
+            <Button onClick={() => { setTaskForm({ ...BLANK_TASK }); setTaskDialog({ mode: "create" }); }} className="bg-primary text-primary-foreground">
+              <Plus className="mr-2 h-4 w-4" /> Add Task
+            </Button>
+          </div>
+
+          {taskLoading ? (
+            <div className="space-y-2">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-16 rounded-xl" />)}</div>
+          ) : taskItems.length === 0 ? (
+            <div className="py-20 text-center text-muted-foreground rounded-xl border border-border bg-card">
+              <ClipboardList className="h-10 w-10 mx-auto mb-3 opacity-20" />
+              <p className="text-sm">No daily tasks yet. Create one to get started.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {taskItems.map((item: any) => {
+                const typeLabel: Record<string, string> = { quiz_count: "Complete Quizzes", score_target: "Score Target", category_quiz: "Category Quiz", correct_answers: "Correct Answers" };
+                const typeIcon: Record<string, any> = { quiz_count: ClipboardList, score_target: Target, category_quiz: Layers, correct_answers: CheckCircle2 };
+                const TypeIcon = typeIcon[item.taskType] ?? ClipboardList;
+                return (
+                  <div key={item.id} className={cn("rounded-xl border border-border bg-card p-4 flex items-center gap-4", !item.isActive && "opacity-50")}>
+                    <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                      <TypeIcon className="h-5 w-5 text-primary" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-sm">{item.title}</span>
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 shrink-0">{typeLabel[item.taskType] ?? item.taskType}</Badge>
+                        {!item.isActive && <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 border-red-500/40 text-red-400 shrink-0">Hidden</Badge>}
+                        {item.autoGenerated && <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 border-blue-500/40 text-blue-400 shrink-0">Auto</Badge>}
+                      </div>
+                      <p className="text-xs text-muted-foreground truncate">{item.description || `Target: ${item.targetValue}`}</p>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0 text-xs text-muted-foreground">
+                      <span className="flex items-center gap-1"><Gem className="h-3 w-3 text-amber-400" />{item.rewardCoins}</span>
+                      <span className="flex items-center gap-1"><Zap className="h-3 w-3 text-violet-400" />{item.rewardXp} XP</span>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground" onClick={() => toggleTaskActive(item)} title={item.isActive ? "Hide" : "Show"}>
+                        {item.isActive ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                      </Button>
+                      <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground" onClick={() => { setTaskForm({ title: item.title, description: item.description || "", taskType: item.taskType, targetValue: item.targetValue, rewardCoins: item.rewardCoins, rewardXp: item.rewardXp, categoryId: item.categoryId || "", isActive: item.isActive }); setTaskDialog({ mode: "edit", item }); }}>
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-red-400 hover:text-red-300 hover:bg-red-500/10" onClick={() => deleteTaskItem(item.id)} disabled={taskDeletePending === item.id}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Daily Task Dialog */}
+      <Dialog open={!!taskDialog} onOpenChange={(open) => !open && setTaskDialog(null)}>
+        <DialogContent className="sm:max-w-md border-border bg-card">
+          <DialogHeader>
+            <DialogTitle>{taskDialog?.mode === "create" ? "Add Daily Task" : "Edit Daily Task"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Title *</Label>
+              <Input value={taskForm.title} onChange={e => setTaskForm(f => ({ ...f, title: e.target.value }))} placeholder="e.g. Quiz Champion" className="bg-muted/30 border-border" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Description</Label>
+              <Input value={taskForm.description} onChange={e => setTaskForm(f => ({ ...f, description: e.target.value }))} placeholder="Short description shown to players..." className="bg-muted/30 border-border" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Task Type *</Label>
+                <Select value={taskForm.taskType} onValueChange={v => setTaskForm(f => ({ ...f, taskType: v }))}>
+                  <SelectTrigger className="bg-muted/30 border-border"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="quiz_count">Complete Quizzes</SelectItem>
+                    <SelectItem value="score_target">Score Target</SelectItem>
+                    <SelectItem value="category_quiz">Category Quiz</SelectItem>
+                    <SelectItem value="correct_answers">Correct Answers</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Target Value *</Label>
+                <Input type="number" min={1} value={taskForm.targetValue} onChange={e => setTaskForm(f => ({ ...f, targetValue: Number(e.target.value) }))} className="bg-muted/30 border-border" />
+              </div>
+            </div>
+            {(taskForm.taskType === "category_quiz") && (
+              <div className="space-y-1.5">
+                <Label className="text-xs">Category (optional)</Label>
+                <Select value={taskForm.categoryId || "_none"} onValueChange={v => setTaskForm(f => ({ ...f, categoryId: v === "_none" ? "" : v }))}>
+                  <SelectTrigger className="bg-muted/30 border-border"><SelectValue placeholder="Any category" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="_none">Any category</SelectItem>
+                    {(allCategories || []).map((c: any) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Reward Coins</Label>
+                <Input type="number" min={0} value={taskForm.rewardCoins} onChange={e => setTaskForm(f => ({ ...f, rewardCoins: Number(e.target.value) }))} className="bg-muted/30 border-border" />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Reward XP</Label>
+                <Input type="number" min={0} value={taskForm.rewardXp} onChange={e => setTaskForm(f => ({ ...f, rewardXp: Number(e.target.value) }))} className="bg-muted/30 border-border" />
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setTaskForm(f => ({ ...f, isActive: !f.isActive }))}
+                className={cn("h-6 w-11 rounded-full transition-colors relative", taskForm.isActive ? "bg-primary" : "bg-muted")}
+              >
+                <span className={cn("absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform shadow", taskForm.isActive ? "translate-x-5" : "translate-x-0.5")} />
+              </button>
+              <span className="text-sm">{taskForm.isActive ? "Visible to players" : "Hidden from players"}</span>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setTaskDialog(null)}>Cancel</Button>
+            <Button onClick={saveTaskItem} disabled={!taskForm.title || !taskForm.taskType || taskSaving} className="bg-primary text-primary-foreground">
+              {taskSaving ? "Saving..." : taskDialog?.mode === "create" ? "Create Task" : "Save Changes"}
             </Button>
           </DialogFooter>
         </DialogContent>

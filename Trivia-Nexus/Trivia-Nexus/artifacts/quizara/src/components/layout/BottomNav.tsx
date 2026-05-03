@@ -1,11 +1,11 @@
 import { Link, useLocation } from "wouter";
-import { Home, Search, Trophy, User, Swords, Flame } from "lucide-react";
+import { Home, Search, Trophy, User, ClipboardList } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
   { href: "/", label: "Home", icon: Home },
   { href: "/categories", label: "Explore", icon: Search },
-  { href: "/blitz", label: "Blitz", icon: Flame },
+  { href: "/tasks", label: "Tasks", icon: ClipboardList },
   { href: "/leaderboard", label: "Rankings", icon: Trophy },
   { href: "/profile", label: "Profile", icon: User },
 ];
