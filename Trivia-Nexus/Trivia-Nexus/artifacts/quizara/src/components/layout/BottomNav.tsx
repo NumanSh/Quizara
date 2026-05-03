@@ -1,17 +1,19 @@
 import { Link, useLocation } from "wouter";
 import { Home, Search, Trophy, User, ClipboardList } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-const NAV_ITEMS = [
-  { href: "/", label: "Home", icon: Home },
-  { href: "/categories", label: "Explore", icon: Search },
-  { href: "/tasks", label: "Tasks", icon: ClipboardList },
-  { href: "/leaderboard", label: "Rankings", icon: Trophy },
-  { href: "/profile", label: "Profile", icon: User },
-];
+import { useI18n } from "@/lib/i18n";
 
 export function BottomNav() {
   const [location] = useLocation();
+  const { t } = useI18n();
+
+  const NAV_ITEMS = [
+    { href: "/", label: t.bottomNav.home, icon: Home },
+    { href: "/categories", label: t.bottomNav.explore, icon: Search },
+    { href: "/tasks", label: t.bottomNav.tasks, icon: ClipboardList },
+    { href: "/leaderboard", label: t.bottomNav.rankings, icon: Trophy },
+    { href: "/profile", label: t.bottomNav.profile, icon: User },
+  ];
 
   const isActive = (href: string) => {
     if (href === "/") return location === "/";

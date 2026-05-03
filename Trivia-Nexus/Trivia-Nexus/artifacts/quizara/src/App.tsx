@@ -5,6 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import { useEffect } from "react";
 
+import { I18nProvider } from "@/lib/i18n";
 import { TopBar } from "@/components/layout/TopBar";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { BottomNav } from "@/components/layout/BottomNav";
@@ -41,14 +42,10 @@ function AppLayout() {
     <div className="min-h-screen bg-background text-foreground overflow-x-hidden">
       <ForceDarkMode />
 
-      {/* Fixed top bar */}
       <TopBar />
-
-      {/* Fixed sidebar — desktop only */}
       <Sidebar />
 
-      {/* Main content: offset for topbar + sidebar */}
-      <main className="pt-16 md:ml-64 min-h-screen flex flex-col pb-16 md:pb-0">
+      <main className="pt-16 md:ml-64 md:rtl:ml-0 md:rtl:mr-64 min-h-screen flex flex-col pb-16 md:pb-0">
         <Switch>
           <Route path="/" component={Home} />
           <Route path="/login" component={Login} />
@@ -70,10 +67,7 @@ function AppLayout() {
         </Switch>
       </main>
 
-      {/* Mobile bottom nav */}
       <BottomNav />
-
-      {/* Profile setup wizard — shown automatically after first login */}
       <ProfileSetupModal />
     </div>
   );
@@ -81,14 +75,16 @@ function AppLayout() {
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-          <AppLayout />
-        </WouterRouter>
-        <Toaster />
-      </TooltipProvider>
-    </QueryClientProvider>
+    <I18nProvider>
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+            <AppLayout />
+          </WouterRouter>
+          <Toaster />
+        </TooltipProvider>
+      </QueryClientProvider>
+    </I18nProvider>
   );
 }
 

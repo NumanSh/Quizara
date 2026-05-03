@@ -78,6 +78,16 @@
   --radius: 0.75rem;
 }
 
+.font-arabic {
+  --app-font-sans: 'Cairo', sans-serif;
+  font-family: 'Cairo', sans-serif;
+}
+
+.font-arabic * {
+  font-family: 'Cairo', sans-serif;
+  letter-spacing: 0;
+}
+
 .dark {
   --background: 216 28% 7%;
   --foreground: 210 40% 98%;

@@ -1,6 +1,6 @@
 # Quizara
 
-A full-stack trivia quiz platform where knowledge becomes sport. English-only UI. Features competitive leaderboards, a marketplace, and a full admin panel.
+A full-stack trivia quiz platform where knowledge becomes sport. Supports English and Arabic (RTL) UI. Features competitive leaderboards, a marketplace, power-ups, and a full admin panel.
 
 ## Architecture
 

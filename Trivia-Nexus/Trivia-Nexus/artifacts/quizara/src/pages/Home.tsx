@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { Play, ArrowRight, Flame, Users, HelpCircle, Globe, Trophy, Zap, Target, Star, Swords, UserPlus, Shield } from "lucide-react";
+import { Play, ArrowRight, Flame, Users, HelpCircle, Globe, Trophy, Zap, Target, Star, Swords, UserPlus } from "lucide-react";
 import {
   useListCategories, getListCategoriesQueryKey,
   useGetLeaderboard, getGetLeaderboardQueryKey,
@@ -8,6 +8,7 @@ import { useAuth } from "@workspace/replit-auth-web";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useStreak } from "@/hooks/useStreak";
+import { useI18n } from "@/lib/i18n";
 
 // Scrolling banner tiles — gradient backgrounds per category
 const BANNER_TILES = [
@@ -21,7 +22,6 @@ const BANNER_TILES = [
   { label: "Tech", bg: "from-indigo-900/80 to-indigo-950", accent: "#818cf8", symbol: "💡" },
 ];
 
-// Doubled for seamless infinite scroll
 const ALL_TILES = [...BANNER_TILES, ...BANNER_TILES];
 
 const CATEGORY_ACCENT_COLORS = [
@@ -50,6 +50,7 @@ const MILESTONE_COINS: Record<number, number> = { 7: 50, 30: 200, 100: 500 };
 export default function Home() {
   const { isAuthenticated } = useAuth();
   const { data: streak } = useStreak(isAuthenticated);
+  const { t } = useI18n();
 
   const { data: categories, isLoading: catsLoading } = useListCategories(
     undefined,
@@ -78,36 +79,35 @@ export default function Home() {
                 <BannerTile key={i} tile={tile} />
               ))}
             </div>
-            {/* Glassmorphism overlay */}
             <div className="absolute inset-0 bg-gradient-to-b from-background/30 via-background/65 to-background backdrop-blur-[2px]" />
             <div className="absolute inset-0 bg-gradient-to-r from-background/40 via-transparent to-background/40" />
           </div>
 
-          {/* Hero content — glassmorphism card */}
+          {/* Hero content */}
           <div className="relative z-10 text-center max-w-2xl mx-auto px-4 space-y-5 bg-card/40 backdrop-blur-md border border-white/10 p-8 md:p-12 rounded-3xl shadow-[0_8px_32px_rgba(0,0,0,0.4)] m-4">
             <h2 className="text-4xl md:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-secondary to-primary leading-tight drop-shadow-lg">
-              Test Your Knowledge
+              {t.home.hero.title}
             </h2>
             <p className="text-base md:text-lg text-muted-foreground max-w-lg mx-auto leading-relaxed">
-              Join players worldwide in the ultimate trivia experience. Compete in real-time or challenge yourself daily.
+              {t.home.hero.subtitle}
             </p>
             <div className="flex flex-col sm:flex-row gap-3 justify-center pt-2 flex-wrap">
               <Link href="/categories">
                 <button className="flex items-center justify-center gap-2 bg-gradient-to-r from-secondary to-primary text-white px-7 py-3.5 rounded-xl font-bold text-sm shadow-[0_8px_30px_rgba(99,102,241,0.4)] hover:shadow-[0_8px_30px_rgba(99,102,241,0.6)] transition-all active:scale-95 w-full sm:w-auto">
                   <Play className="h-4 w-4 fill-current" />
-                  Quick Play
+                  {t.home.hero.quickPlay}
                 </button>
               </Link>
               <Link href="/arena">
                 <button className="flex items-center justify-center gap-2 bg-cyan-500/15 border border-cyan-500/40 text-cyan-300 px-7 py-3.5 rounded-xl font-bold text-sm hover:bg-cyan-500/25 hover:border-cyan-400/60 transition-all active:scale-95 backdrop-blur-md w-full sm:w-auto shadow-[0_4px_20px_rgba(34,211,238,0.15)]">
                   <Swords className="h-4 w-4" />
-                  Online Game
+                  {t.home.hero.onlineGame}
                 </button>
               </Link>
               <Link href="/arena">
                 <button className="flex items-center justify-center gap-2 bg-card/80 border border-white/15 text-foreground px-7 py-3.5 rounded-xl font-bold text-sm hover:bg-card transition-all active:scale-95 backdrop-blur-md w-full sm:w-auto">
                   <UserPlus className="h-4 w-4" />
-                  Friends Game
+                  {t.home.hero.friendsGame}
                 </button>
               </Link>
             </div>
@@ -117,9 +117,9 @@ export default function Home() {
         {/* ── Live Stats Strip ── */}
         <div className="grid grid-cols-3 gap-3 md:gap-4">
           {[
-            { icon: Users, label: "Players Online", value: "2,400+", color: "text-primary" },
-            { icon: HelpCircle, label: "Questions Today", value: "18,900+", color: "text-secondary" },
-            { icon: Globe, label: "Countries", value: "80+", color: "text-yellow-400" },
+            { icon: Users, label: t.home.stats.playersOnline, value: "2,400+", color: "text-primary" },
+            { icon: HelpCircle, label: t.home.stats.questionsToday, value: "18,900+", color: "text-secondary" },
+            { icon: Globe, label: t.home.stats.countries, value: "80+", color: "text-yellow-400" },
           ].map(({ icon: Icon, label, value, color }) => (
             <div key={label} className="rounded-xl border border-white/8 bg-card/60 backdrop-blur-sm p-4 flex flex-col items-center text-center gap-1 hover:border-white/15 transition-colors">
               <Icon className={cn("h-5 w-5", color)} />
@@ -135,9 +135,9 @@ export default function Home() {
           {/* Categories — 8 cols */}
           <section className="md:col-span-8 space-y-5">
             <div className="flex items-center justify-between">
-              <h3 className="text-2xl font-bold text-foreground">Categories</h3>
+              <h3 className="text-2xl font-bold text-foreground">{t.home.categories.title}</h3>
               <Link href="/categories" className="flex items-center gap-1 text-sm font-medium text-primary hover:text-primary/80 transition-colors">
-                View All <ArrowRight className="h-4 w-4" />
+                {t.home.categories.viewAll} <ArrowRight className="h-4 w-4 rtl:rotate-180" />
               </Link>
             </div>
 
@@ -171,36 +171,33 @@ export default function Home() {
             <div className="relative overflow-hidden rounded-2xl border border-orange-500/25 bg-gradient-to-br from-card to-orange-950/20 p-6 shadow-lg">
               <div className="absolute -right-10 -top-10 w-40 h-40 bg-orange-500/10 blur-3xl rounded-full" />
 
-              {/* Header */}
               <div className="flex items-center justify-between mb-1 relative z-10">
                 <div className="flex items-center gap-2">
                   <Flame className="h-6 w-6 text-orange-400" />
-                  <h3 className="font-bold text-base text-foreground">Daily Streak</h3>
+                  <h3 className="font-bold text-base text-foreground">{t.home.streak.title}</h3>
                 </div>
                 {isAuthenticated && streak && streak.currentStreak > 0 && (
                   <span className="text-xs font-bold text-orange-400 bg-orange-400/10 border border-orange-400/20 px-2 py-0.5 rounded-full">
-                    🔥 Day {streak.currentStreak}
+                    🔥 {t.home.streak.day} {streak.currentStreak}
                   </span>
                 )}
               </div>
 
               {isAuthenticated && streak ? (
                 <>
-                  {/* Big streak number */}
                   <div className="flex items-end gap-2 my-3 relative z-10">
                     <span className="text-5xl font-black text-orange-400 leading-none">
                       {streak.currentStreak}
                     </span>
-                    <span className="text-sm text-muted-foreground mb-1">day streak</span>
+                    <span className="text-sm text-muted-foreground mb-1">{t.home.streak.dayStreak}</span>
                   </div>
 
-                  {/* Next milestone progress */}
                   {streak.nextMilestone && (
                     <div className="bg-background/40 rounded-lg p-3 mb-4 relative z-10">
                       <div className="flex justify-between text-xs font-medium mb-2">
-                        <span className="text-muted-foreground">Next milestone</span>
+                        <span className="text-muted-foreground">{t.home.streak.nextMilestone}</span>
                         <span className="text-orange-400">
-                          Day {streak.nextMilestone} · +{MILESTONE_COINS[streak.nextMilestone] ?? "?"} coins
+                          {t.home.streak.dayLabel} {streak.nextMilestone} · +{MILESTONE_COINS[streak.nextMilestone] ?? "?"} {t.home.streak.coins}
                         </span>
                       </div>
                       <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
@@ -210,37 +207,35 @@ export default function Home() {
                         />
                       </div>
                       <p className="text-[10px] text-muted-foreground mt-1.5">
-                        {streak.nextMilestone - streak.currentStreak} day{streak.nextMilestone - streak.currentStreak !== 1 ? "s" : ""} to go
+                        {streak.nextMilestone - streak.currentStreak} {streak.nextMilestone - streak.currentStreak !== 1 ? t.home.streak.daysToGo : t.home.streak.dayToGo}
                       </p>
                     </div>
                   )}
 
-                  {/* Status */}
                   {streak.checkedInToday ? (
                     <div className="relative z-10 flex items-center gap-2 py-2.5 px-3 rounded-xl bg-green-500/10 border border-green-500/20 text-sm font-semibold text-green-400">
                       <Target className="h-4 w-4" />
-                      Checked in today ✓
+                      {t.home.streak.checkedIn}
                     </div>
                   ) : (
                     <Link href="/categories">
                       <button className="w-full relative z-10 bg-orange-500/15 border border-orange-500/30 text-orange-400 rounded-xl py-2.5 text-sm font-semibold hover:bg-orange-500/25 transition-colors">
-                        Play to keep your streak
+                        {t.home.streak.playToKeep}
                       </button>
                     </Link>
                   )}
 
-                  {/* Longest streak */}
                   {streak.longestStreak > 0 && (
                     <p className="text-[11px] text-muted-foreground mt-3 relative z-10 flex items-center gap-1">
                       <Trophy className="h-3 w-3" />
-                      Best: {streak.longestStreak} days
+                      {t.home.streak.best} {streak.longestStreak} {t.home.streak.days}
                     </p>
                   )}
                 </>
               ) : (
                 <>
                   <p className="text-sm text-muted-foreground my-3 relative z-10">
-                    Play daily to build your streak and earn milestone coin bonuses at Day 7, 30 and 100!
+                    {t.home.streak.playDaily}
                   </p>
                   <div className="flex gap-2 text-xs text-muted-foreground mb-4 relative z-10">
                     {[{ d: 7, c: 50 }, { d: 30, c: 200 }, { d: 100, c: 500 }].map(({ d, c }) => (
@@ -251,7 +246,7 @@ export default function Home() {
                   </div>
                   <Link href="/categories">
                     <button className="w-full relative z-10 border border-orange-500/30 text-orange-400 rounded-xl py-2.5 text-sm font-semibold hover:bg-orange-500/10 transition-colors">
-                      Start your streak
+                      {t.home.streak.startStreak}
                     </button>
                   </Link>
                 </>
@@ -261,7 +256,7 @@ export default function Home() {
             {/* Top Players card */}
             <div className="rounded-2xl border border-white/8 bg-card/80 p-6">
               <div className="flex items-center justify-between mb-5">
-                <h3 className="font-bold text-lg text-foreground">Top Players</h3>
+                <h3 className="font-bold text-lg text-foreground">{t.home.topPlayers.title}</h3>
                 <Trophy className="h-5 w-5 text-muted-foreground" />
               </div>
 
@@ -278,8 +273,8 @@ export default function Home() {
                     ? (
                       <div className="py-8 text-center">
                         <Star className="h-8 w-8 text-muted-foreground/30 mx-auto mb-2" />
-                        <p className="text-sm text-muted-foreground">No players yet</p>
-                        <p className="text-xs text-muted-foreground/60 mt-0.5">Be the first to compete!</p>
+                        <p className="text-sm text-muted-foreground">{t.home.topPlayers.noPlayers}</p>
+                        <p className="text-xs text-muted-foreground/60 mt-0.5">{t.home.topPlayers.beFirst}</p>
                       </div>
                     )
                     : topPlayers.map((player, idx) => {
@@ -297,9 +292,9 @@ export default function Home() {
                               <span className="text-xs font-bold text-secondary">{(player.username || "?")[0].toUpperCase()}</span>
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-semibold text-foreground truncate">{player.username || "Anonymous"}</p>
+                              <p className="text-sm font-semibold text-foreground truncate">{player.username || t.home.topPlayers.anonymous}</p>
                               <p className={cn("text-xs", idx === 0 ? "text-yellow-400" : "text-muted-foreground")}>
-                                {player.totalScore.toLocaleString()} pts
+                                {player.totalScore.toLocaleString()} {t.home.topPlayers.pts}
                               </p>
                             </div>
                             {idx === 0 && <Zap className="h-4 w-4 text-yellow-400 shrink-0" />}
@@ -310,7 +305,7 @@ export default function Home() {
 
               <Link href="/leaderboard">
                 <button className="w-full mt-5 text-sm font-semibold text-primary hover:text-primary/80 transition-colors">
-                  View Full Leaderboard →
+                  {t.home.topPlayers.viewFull}
                 </button>
               </Link>
             </div>
@@ -320,40 +315,36 @@ export default function Home() {
         {/* ── How to Play ── */}
         <section className="rounded-2xl border border-white/8 bg-card/40 p-8">
           <div className="text-center mb-8">
-            <h3 className="text-2xl font-bold text-foreground">How to Play</h3>
-            <p className="text-muted-foreground mt-1 text-sm">Your journey to the top in 3 steps</p>
+            <h3 className="text-2xl font-bold text-foreground">{t.home.howToPlay.title}</h3>
+            <p className="text-muted-foreground mt-1 text-sm">{t.home.howToPlay.subtitle}</p>
           </div>
           <div className="grid md:grid-cols-3 gap-8">
             {[
               {
                 step: "01",
-                title: "Choose a Topic",
-                titleAr: "اختر موضوعاً",
-                desc: "Browse hundreds of categories and find your specialty.",
+                title: t.home.howToPlay.step1.title,
+                desc: t.home.howToPlay.step1.desc,
                 color: "text-primary border-primary/20 bg-primary/10",
               },
               {
                 step: "02",
-                title: "Beat the Clock",
-                titleAr: "تغلّب على الوقت",
-                desc: "30 seconds per question — speed and accuracy both count.",
+                title: t.home.howToPlay.step2.title,
+                desc: t.home.howToPlay.step2.desc,
                 color: "text-secondary border-secondary/20 bg-secondary/10",
               },
               {
                 step: "03",
-                title: "Climb the Ranks",
-                titleAr: "تسلّق الترتيب",
-                desc: "Earn points, track your accuracy, dominate the global leaderboard.",
+                title: t.home.howToPlay.step3.title,
+                desc: t.home.howToPlay.step3.desc,
                 color: "text-yellow-400 border-yellow-400/20 bg-yellow-400/10",
               },
-            ].map(({ step, title, titleAr, desc, color }) => (
+            ].map(({ step, title, desc, color }) => (
               <div key={step} className="flex flex-col items-center text-center gap-4">
                 <div className={cn("h-14 w-14 rounded-full border-2 flex items-center justify-center text-lg font-black", color)}>
                   {step}
                 </div>
                 <div>
                   <h4 className="font-bold text-base text-foreground">{title}</h4>
-                  <p className="text-xs text-muted-foreground mt-0.5" dir="rtl">{titleAr}</p>
                 </div>
                 <p className="text-sm text-muted-foreground leading-relaxed max-w-xs">{desc}</p>
               </div>
