@@ -1,0 +1,1354 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: Quizara API specification
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: Auth
+    description: Browser and mobile authentication endpoints.
+  - name: categories
+    description: Quiz categories and sub-categories
+  - name: questions
+    description: Quiz questions
+  - name: quiz
+    description: Quiz sessions and gameplay
+  - name: leaderboard
+    description: Leaderboard and rankings
+  - name: profile
+    description: User profile management
+  - name: admin
+    description: Admin management endpoints
+  - name: marketplace
+    description: Marketplace items, purchasing, and inventory
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /auth/user:
+    get:
+      tags: [Auth]
+      operationId: getCurrentAuthUser
+      summary: Get the currently authenticated user
+      parameters:
+        - $ref: '#/components/parameters/AuthorizationSessionHeader'
+        - $ref: '#/components/parameters/SessionCookie'
+      responses:
+        '200':
+          description: Auth status resolved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthUserEnvelope'
+  /login:
+    get:
+      tags: [Auth]
+      operationId: beginBrowserLogin
+      summary: Start the browser OIDC login flow
+      parameters:
+        - name: returnTo
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect to the OIDC authorization endpoint.
+  /callback:
+    get:
+      tags: [Auth]
+      operationId: handleBrowserLoginCallback
+      summary: Complete the browser OIDC login flow
+      parameters:
+        - name: code
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: iss
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uri
+      responses:
+        '302':
+          description: Redirect to the returnTo path on success.
+  /logout:
+    get:
+      tags: [Auth]
+      operationId: logoutBrowserSession
+      summary: Clear the session and begin OIDC logout
+      parameters:
+        - $ref: '#/components/parameters/AuthorizationSessionHeader'
+        - $ref: '#/components/parameters/SessionCookie'
+      responses:
+        '302':
+          description: Redirect to the OIDC provider logout URL.
+  /mobile-auth/token-exchange:
+    post:
+      tags: [Auth]
+      operationId: exchangeMobileAuthorizationCode
+      summary: Exchange a mobile OIDC code for a session token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MobileTokenExchangeRequest'
+      responses:
+        '200':
+          description: Session created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MobileTokenExchangeSuccess'
+        '400':
+          description: Missing or invalid required fields.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          description: Token did not contain usable claims.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          description: Token exchange failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /mobile-auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logoutMobileSession
+      summary: Delete a mobile session token
+      parameters:
+        - $ref: '#/components/parameters/AuthorizationSessionHeader'
+      responses:
+        '200':
+          description: Logout processed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogoutSuccess'
+
+  /profile:
+    get:
+      operationId: getProfile
+      tags: [profile]
+      summary: Get current user profile
+      responses:
+        '200':
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '401':
+          description: Unauthorized
+    put:
+      operationId: updateProfile
+      tags: [profile]
+      summary: Update current user profile (username, country, etc.)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileBody'
+      responses:
+        '200':
+          description: Profile updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '401':
+          description: Unauthorized
+
+  /categories:
+    get:
+      operationId: listCategories
+      tags: [categories]
+      summary: List all main categories
+      parameters:
+        - name: parentId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by parent category ID (to get sub-categories)
+      responses:
+        '200':
+          description: List of categories
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Category'
+
+  /categories/{categoryId}:
+    get:
+      operationId: getCategory
+      tags: [categories]
+      summary: Get a category by ID
+      parameters:
+        - name: categoryId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Category details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+        '404':
+          description: Category not found
+
+  /categories/{categoryId}/subcategories:
+    get:
+      operationId: listSubcategories
+      tags: [categories]
+      summary: List sub-categories for a given main category
+      parameters:
+        - name: categoryId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of sub-categories
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Category'
+
+  /categories/{categoryId}/stats:
+    get:
+      operationId: getCategoryStats
+      tags: [categories]
+      summary: Get question count and avg difficulty for a category
+      parameters:
+        - name: categoryId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Category stats
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryStats'
+
+  /quiz/start:
+    post:
+      operationId: startQuiz
+      tags: [quiz]
+      summary: Start a new quiz session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartQuizBody'
+      responses:
+        '201':
+          description: Quiz session created with first question
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuizSession'
+        '400':
+          description: Invalid request
+
+  /quiz/{sessionId}/answer:
+    post:
+      operationId: submitAnswer
+      tags: [quiz]
+      summary: Submit an answer for the current question
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitAnswerBody'
+      responses:
+        '200':
+          description: Answer result with correct answer and explanation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnswerResult'
+        '404':
+          description: Session not found
+
+  /quiz/{sessionId}:
+    get:
+      operationId: getQuizSession
+      tags: [quiz]
+      summary: Get a quiz session state
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Quiz session details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuizSession'
+        '404':
+          description: Session not found
+
+  /quiz/{sessionId}/complete:
+    post:
+      operationId: completeQuiz
+      tags: [quiz]
+      summary: Complete a quiz session and get final results
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Final quiz results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuizResults'
+
+  /leaderboard:
+    get:
+      operationId: getLeaderboard
+      tags: [leaderboard]
+      summary: Get global leaderboard (individual)
+      parameters:
+        - name: period
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [all_time, weekly]
+          description: Leaderboard time period
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: Leaderboard entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/LeaderboardEntry'
+
+  /leaderboard/countries:
+    get:
+      operationId: getCountryLeaderboard
+      tags: [leaderboard]
+      summary: Get country-based leaderboard
+      responses:
+        '200':
+          description: Country rankings
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CountryLeaderboardEntry'
+
+  /leaderboard/me:
+    get:
+      operationId: getMyRank
+      tags: [leaderboard]
+      summary: Get current user's rank and stats
+      responses:
+        '200':
+          description: Current user rank info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserRankInfo'
+        '401':
+          description: Unauthorized
+
+  /leaderboard/arena/me:
+    get:
+      operationId: getMyArenaStats
+      tags: [leaderboard]
+      summary: Get current user's arena stats and rank
+      responses:
+        '200':
+          description: Current user arena stats
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyArenaStats'
+        '401':
+          description: Unauthorized
+
+  /leaderboard/arena:
+    get:
+      operationId: getArenaLeaderboard
+      tags: [leaderboard]
+      summary: Get arena leaderboard ranked by wins then win-rate
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: Arena leaderboard entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ArenaLeaderboardEntry'
+
+  # Admin endpoints
+  /admin/categories:
+    get:
+      operationId: adminListCategories
+      tags: [admin]
+      summary: Admin - list all categories
+      responses:
+        '200':
+          description: All categories
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Category'
+    post:
+      operationId: adminCreateCategory
+      tags: [admin]
+      summary: Admin - create a new category
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCategoryBody'
+      responses:
+        '201':
+          description: Category created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+
+  /admin/categories/{categoryId}:
+    put:
+      operationId: adminUpdateCategory
+      tags: [admin]
+      summary: Admin - update a category
+      parameters:
+        - name: categoryId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCategoryBody'
+      responses:
+        '200':
+          description: Category updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+    delete:
+      operationId: adminDeleteCategory
+      tags: [admin]
+      summary: Admin - delete a category
+      parameters:
+        - name: categoryId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Category deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteResult'
+
+  /admin/questions:
+    get:
+      operationId: adminListQuestions
+      tags: [admin]
+      summary: Admin - list all questions
+      parameters:
+        - name: categoryId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Questions list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedQuestions'
+    post:
+      operationId: adminCreateQuestion
+      tags: [admin]
+      summary: Admin - create a new question
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateQuestionBody'
+      responses:
+        '201':
+          description: Question created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Question'
+
+  /admin/questions/{questionId}:
+    put:
+      operationId: adminUpdateQuestion
+      tags: [admin]
+      summary: Admin - update a question
+      parameters:
+        - name: questionId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateQuestionBody'
+      responses:
+        '200':
+          description: Question updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Question'
+    delete:
+      operationId: adminDeleteQuestion
+      tags: [admin]
+      summary: Admin - delete a question
+      parameters:
+        - name: questionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Question deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteResult'
+
+  /admin/stats:
+    get:
+      operationId: getAdminStats
+      tags: [admin]
+      summary: Admin - platform overview statistics
+      responses:
+        '200':
+          description: Admin statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminStats'
+
+  # Marketplace endpoints
+  /marketplace/items:
+    get:
+      operationId: listMarketplaceItems
+      tags: [marketplace]
+      summary: List all active marketplace items
+      responses:
+        '200':
+          description: List of marketplace items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MarketplaceItem'
+
+  /marketplace/inventory:
+    get:
+      operationId: getInventory
+      tags: [marketplace]
+      summary: Get current user's inventory
+      responses:
+        '200':
+          description: User inventory
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/InventoryItem'
+        '401':
+          description: Unauthorized
+
+  /marketplace/purchase:
+    post:
+      operationId: purchaseItem
+      tags: [marketplace]
+      summary: Purchase an item from the marketplace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PurchaseItemBody'
+      responses:
+        '200':
+          description: Purchase successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PurchaseResult'
+        '401':
+          description: Unauthorized
+        '402':
+          description: Insufficient coins
+        '404':
+          description: Item not found
+
+  /marketplace/use-item:
+    post:
+      operationId: useItem
+      tags: [marketplace]
+      summary: Use/consume one item from inventory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UseItemBody'
+      responses:
+        '200':
+          description: Item used successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UseItemResult'
+        '401':
+          description: Unauthorized
+        '404':
+          description: Item not in inventory
+
+components:
+  parameters:
+    AuthorizationSessionHeader:
+      name: Authorization
+      in: header
+      required: false
+      description: Opaque session token — Bearer <sid>.
+      schema:
+        type: string
+    SessionCookie:
+      name: sid
+      in: cookie
+      required: false
+      description: Browser session cookie.
+      schema:
+        type: string
+
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+
+    AuthUser:
+      type: object
+      required: [id, email, firstName, lastName, profileImageUrl]
+      properties:
+        id:
+          type: string
+        email:
+          type: [string, 'null']
+          format: email
+        firstName:
+          type: [string, 'null']
+        lastName:
+          type: [string, 'null']
+        profileImageUrl:
+          type: [string, 'null']
+    AuthUserEnvelope:
+      type: object
+      required: [user]
+      properties:
+        user:
+          oneOf:
+            - $ref: '#/components/schemas/AuthUser'
+            - type: 'null'
+    MobileTokenExchangeRequest:
+      type: object
+      required: [code, code_verifier, redirect_uri, state]
+      properties:
+        code:
+          type: string
+          minLength: 1
+        code_verifier:
+          type: string
+          minLength: 1
+        redirect_uri:
+          type: string
+          minLength: 1
+          format: uri
+        state:
+          type: string
+          minLength: 1
+        nonce:
+          type: string
+          minLength: 1
+    MobileTokenExchangeSuccess:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+    LogoutSuccess:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+          const: true
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+    UserProfile:
+      type: object
+      required: [id, username, country, role, totalScore, coins, gamesPlayed, createdAt]
+      properties:
+        id:
+          type: string
+        email:
+          type: [string, 'null']
+        username:
+          type: [string, 'null']
+        firstName:
+          type: [string, 'null']
+        lastName:
+          type: [string, 'null']
+        profileImageUrl:
+          type: [string, 'null']
+        country:
+          type: [string, 'null']
+        role:
+          type: string
+          enum: [player, admin]
+        totalScore:
+          type: integer
+        coins:
+          type: integer
+          description: Spendable coins for the marketplace
+        gamesPlayed:
+          type: integer
+        bestScore:
+          type: integer
+        totalXp:
+          type: integer
+          description: Cumulative XP earned across all seasons. Used to determine rank title.
+        rankTitle:
+          type: string
+          description: Rank title derived from totalXp (Rookie, Scholar, Expert, Master, Legend)
+        createdAt:
+          type: string
+          format: date-time
+
+    UpdateProfileBody:
+      type: object
+      properties:
+        username:
+          type: string
+        country:
+          type: string
+        role:
+          type: string
+          enum: [player, admin]
+        adminCode:
+          type: string
+
+    Category:
+      type: object
+      required: [id, name, nameAr, icon, parentId, questionCount, createdAt]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        nameAr:
+          type: string
+        icon:
+          type: string
+        color:
+          type: [string, 'null']
+        imageUrl:
+          type: [string, 'null']
+        parentId:
+          type: [string, 'null']
+        questionCount:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+
+    CategoryStats:
+      type: object
+      required: [categoryId, questionCount, avgDifficulty, timesPlayed]
+      properties:
+        categoryId:
+          type: string
+        questionCount:
+          type: integer
+        avgDifficulty:
+          type: number
+        timesPlayed:
+          type: integer
+
+    CreateCategoryBody:
+      type: object
+      required: [name, icon]
+      properties:
+        name:
+          type: string
+        nameAr:
+          type: string
+        icon:
+          type: string
+        color:
+          type: string
+        imageUrl:
+          type: string
+        parentId:
+          type: [string, 'null']
+
+    Question:
+      type: object
+      required: [id, categoryId, question, questionAr, options, correctAnswer, difficulty]
+      properties:
+        id:
+          type: string
+        categoryId:
+          type: string
+        questionType:
+          type: string
+          enum: [multiple_choice, true_false, image, fill_blank, ordering, matching, audio, hotspot]
+          default: multiple_choice
+        question:
+          type: string
+        questionAr:
+          type: string
+        imageUrl:
+          type: [string, 'null']
+          description: URL of image for image-type questions
+        options:
+          type: array
+          items:
+            type: string
+        optionsAr:
+          type: array
+          items:
+            type: string
+        correctAnswer:
+          type: integer
+          description: Index of the correct answer
+        explanation:
+          type: [string, 'null']
+        explanationAr:
+          type: [string, 'null']
+        difficulty:
+          type: integer
+          minimum: 1
+          maximum: 3
+          description: 1=easy, 2=medium, 3=hard
+
+    CreateQuestionBody:
+      type: object
+      required: [categoryId, question, options, correctAnswer]
+      properties:
+        categoryId:
+          type: string
+        questionType:
+          type: string
+          enum: [multiple_choice, true_false, image, fill_blank, ordering, matching, audio, hotspot]
+          default: multiple_choice
+        question:
+          type: string
+        questionAr:
+          type: string
+        imageUrl:
+          type: [string, 'null']
+        options:
+          type: array
+          items:
+            type: string
+        optionsAr:
+          type: array
+          items:
+            type: string
+        correctAnswer:
+          type: integer
+          minimum: 0
+        explanation:
+          type: string
+        explanationAr:
+          type: string
+        difficulty:
+          type: integer
+          minimum: 1
+          maximum: 3
+
+    PaginatedQuestions:
+      type: object
+      required: [questions, total, limit, offset]
+      properties:
+        questions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Question'
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+    StartQuizBody:
+      type: object
+      required: [categoryId]
+      properties:
+        categoryId:
+          type: string
+        questionCount:
+          type: integer
+          default: 10
+        difficulty:
+          type: [integer, 'null']
+          description: 1=easy, 2=medium, 3=hard, null=mixed
+
+    QuizQuestion:
+      type: object
+      required: [id, question, questionAr, options, optionsAr, questionNumber, totalQuestions]
+      properties:
+        id:
+          type: string
+        questionType:
+          type: string
+          enum: [multiple_choice, true_false, image, fill_blank, ordering, matching, audio, hotspot]
+          default: multiple_choice
+        question:
+          type: string
+        questionAr:
+          type: string
+        imageUrl:
+          type: [string, 'null']
+        options:
+          type: array
+          items:
+            type: string
+        optionsAr:
+          type: array
+          items:
+            type: string
+        questionNumber:
+          type: integer
+        totalQuestions:
+          type: integer
+        difficulty:
+          type: integer
+
+    QuizSession:
+      type: object
+      required: [sessionId, categoryId, status, score, currentQuestion, questionNumber, totalQuestions]
+      properties:
+        sessionId:
+          type: string
+        categoryId:
+          type: string
+        categoryName:
+          type: string
+        status:
+          type: string
+          enum: [active, completed]
+        score:
+          type: integer
+        currentQuestion:
+          oneOf:
+            - $ref: '#/components/schemas/QuizQuestion'
+            - type: 'null'
+        questionNumber:
+          type: integer
+        totalQuestions:
+          type: integer
+
+    SubmitAnswerBody:
+      type: object
+      required: [questionId]
+      properties:
+        questionId:
+          type: string
+        selectedAnswer:
+          type: integer
+          minimum: 0
+          description: Index of selected answer (MC, true_false, audio, image types)
+        answerData:
+          type: string
+          description: JSON-encoded answer for complex types (ordering, matching, hotspot)
+
+    AnswerResult:
+      type: object
+      required: [correct, correctAnswer, pointsEarned, coinsEarned, explanation, explanationAr, nextQuestion, sessionScore]
+      properties:
+        correct:
+          type: boolean
+        correctAnswer:
+          type: integer
+        correctAnswerData:
+          type: [string, 'null']
+          description: JSON-encoded correct answer for complex types (ordering, matching, hotspot)
+        pointsEarned:
+          type: integer
+        coinsEarned:
+          type: integer
+        explanation:
+          type: [string, 'null']
+        explanationAr:
+          type: [string, 'null']
+        nextQuestion:
+          oneOf:
+            - $ref: '#/components/schemas/QuizQuestion'
+            - type: 'null'
+        sessionScore:
+          type: integer
+        isLastQuestion:
+          type: boolean
+
+    QuizResults:
+      type: object
+      required: [sessionId, score, totalQuestions, correctAnswers, timeTaken, categoryName]
+      properties:
+        sessionId:
+          type: string
+        score:
+          type: integer
+        totalQuestions:
+          type: integer
+        correctAnswers:
+          type: integer
+        timeTaken:
+          type: integer
+          description: Time in seconds
+        categoryName:
+          type: string
+        rank:
+          type: [integer, 'null']
+          description: Player's rank after this game
+
+    LeaderboardEntry:
+      type: object
+      required: [rank, userId, username, totalScore, gamesPlayed, country]
+      properties:
+        rank:
+          type: integer
+        userId:
+          type: string
+        username:
+          type: [string, 'null']
+        profileImageUrl:
+          type: [string, 'null']
+        totalScore:
+          type: integer
+        gamesPlayed:
+          type: integer
+        country:
+          type: [string, 'null']
+
+    CountryLeaderboardEntry:
+      type: object
+      required: [rank, country, totalScore, playerCount]
+      properties:
+        rank:
+          type: integer
+        country:
+          type: string
+        totalScore:
+          type: integer
+        playerCount:
+          type: integer
+        avgScore:
+          type: number
+
+    UserRankInfo:
+      type: object
+      required: [rank, totalScore, gamesPlayed, percentile]
+      properties:
+        rank:
+          type: [integer, 'null']
+        totalScore:
+          type: integer
+        gamesPlayed:
+          type: integer
+        percentile:
+          type: number
+
+    AdminStats:
+      type: object
+      required: [totalUsers, totalQuestions, totalCategories, totalGamesPlayed, activeToday]
+      properties:
+        totalUsers:
+          type: integer
+        totalQuestions:
+          type: integer
+        totalCategories:
+          type: integer
+        totalGamesPlayed:
+          type: integer
+        activeToday:
+          type: integer
+        topCategories:
+          type: array
+          items:
+            type: object
+            required: [categoryId, name, gamesPlayed]
+            properties:
+              categoryId:
+                type: string
+              name:
+                type: string
+              gamesPlayed:
+                type: integer
+
+    DeleteResult:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+
+    MarketplaceItem:
+      type: object
+      required: [id, name, nameAr, description, descriptionAr, type, effect, emoji, price, isActive]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        nameAr:
+          type: string
+        description:
+          type: string
+        descriptionAr:
+          type: string
+        type:
+          type: string
+        effect:
+          type: string
+        emoji:
+          type: string
+        price:
+          type: integer
+        isActive:
+          type: boolean
+
+    InventoryItem:
+      type: object
+      required: [id, itemId, quantity, name, nameAr, effect, emoji, type, price]
+      properties:
+        id:
+          type: string
+        itemId:
+          type: string
+        quantity:
+          type: integer
+        name:
+          type: string
+        nameAr:
+          type: string
+        description:
+          type: string
+        descriptionAr:
+          type: string
+        effect:
+          type: string
+        emoji:
+          type: string
+        type:
+          type: string
+        price:
+          type: integer
+
+    PurchaseItemBody:
+      type: object
+      required: [itemId]
+      properties:
+        itemId:
+          type: string
+
+    PurchaseResult:
+      type: object
+      required: [success, itemName, coinsSpent, remainingCoins]
+      properties:
+        success:
+          type: boolean
+        itemName:
+          type: string
+        coinsSpent:
+          type: integer
+        remainingCoins:
+          type: integer
+
+    UseItemBody:
+      type: object
+      required: [itemId]
+      properties:
+        itemId:
+          type: string
+
+    UseItemResult:
+      type: object
+      required: [success, remainingQuantity]
+      properties:
+        success:
+          type: boolean
+        remainingQuantity:
+          type: integer
+
+    MyArenaStats:
+      type: object
+      required: [rank, wins, losses, draws, totalGames, totalScore, winRate]
+      properties:
+        rank:
+          type: integer
+          nullable: true
+        wins:
+          type: integer
+        losses:
+          type: integer
+        draws:
+          type: integer
+        totalGames:
+          type: integer
+        totalScore:
+          type: integer
+        winRate:
+          type: number
+          format: float
+
+    ArenaLeaderboardEntry:
+      type: object
+      required: [rank, userId, username, wins, losses, draws, totalGames, totalScore, winRate]
+      properties:
+        rank:
+          type: integer
+        userId:
+          type: string
+        username:
+          type: string
+          nullable: true
+        profileImageUrl:
+          type: string
+          nullable: true
+        wins:
+          type: integer
+        losses:
+          type: integer
+        draws:
+          type: integer
+        totalGames:
+          type: integer
+        totalScore:
+          type: integer
+        winRate:
+          type: number
+          format: float

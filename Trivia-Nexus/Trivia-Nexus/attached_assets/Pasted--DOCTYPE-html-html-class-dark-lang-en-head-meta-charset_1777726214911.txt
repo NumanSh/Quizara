@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Quizara Marketplace</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&amp;family=Lexend:wght@400;500&amp;family=Noto+Kufi+Arabic:wght@700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+  .material-symbols-outlined {
+    font-variation-settings:
+    'FILL' 1,
+    'wght' 400,
+    'GRAD' 0,
+    'opsz' 24
+  }
+</style>
+<script id="tailwind-config">
+  tailwind.config = {
+    darkMode: "class",
+    theme: {
+      extend: {
+        "colors": {
+                "surface-container-lowest": "#060e20",
+                "on-tertiary-container": "#4e3e00",
+                "tertiary-container": "#cda800",
+                "primary-fixed-dim": "#c0c1ff",
+                "tertiary-fixed-dim": "#edc200",
+                "inverse-surface": "#dae2fd",
+                "primary-container": "#8083ff",
+                "on-primary-container": "#0d0096",
+                "surface-dim": "#0b1326",
+                "background": "#0b1326",
+                "primary": "#c0c1ff",
+                "on-surface": "#dae2fd",
+                "surface-variant": "#2d3449",
+                "on-secondary-fixed-variant": "#004e5a",
+                "on-error": "#690005",
+                "on-error-container": "#ffdad6",
+                "on-tertiary": "#3c2f00",
+                "on-background": "#dae2fd",
+                "surface-container-high": "#222a3d",
+                "outline-variant": "#464554",
+                "outline": "#908fa0",
+                "primary-fixed": "#e1e0ff",
+                "inverse-on-surface": "#283044",
+                "secondary-fixed-dim": "#2fd9f4",
+                "on-tertiary-fixed-variant": "#564500",
+                "error-container": "#93000a",
+                "surface-container": "#171f33",
+                "on-primary": "#1000a9",
+                "inverse-primary": "#494bd6",
+                "on-secondary-fixed": "#001f25",
+                "error": "#ffb4ab",
+                "on-secondary": "#00363e",
+                "secondary-fixed": "#a2eeff",
+                "secondary": "#5de6ff",
+                "tertiary-fixed": "#ffe07f",
+                "surface-container-low": "#131b2e",
+                "surface-container-highest": "#2d3449",
+                "tertiary": "#edc200",
+                "on-tertiary-fixed": "#231b00",
+                "surface-bright": "#31394d",
+                "on-surface-variant": "#c7c4d7",
+                "on-primary-fixed-variant": "#2f2ebe",
+                "secondary-container": "#00cbe6",
+                "surface-tint": "#c0c1ff",
+                "on-secondary-container": "#00515d",
+                "surface": "#0b1326",
+                "on-primary-fixed": "#07006c"
+        },
+        "borderRadius": {
+                "DEFAULT": "0.25rem",
+                "lg": "0.5rem",
+                "xl": "0.75rem",
+                "full": "9999px"
+        },
+        "spacing": {
+                "lg": "24px",
+                "2xl": "48px",
+                "xs": "4px",
+                "md": "16px",
+                "sm": "8px",
+                "gutter": "16px",
+                "container-margin": "24px",
+                "unit": "4px",
+                "3xl": "64px",
+                "xl": "32px"
+        },
+        "fontFamily": {
+                "display-lg": [
+                        "Inter"
+                ],
+                "body-lg": [
+                        "Lexend"
+                ],
+                "headline-lg": [
+                        "Inter"
+                ],
+                "body-md": [
+                        "Lexend"
+                ],
+                "label-md": [
+                        "Lexend"
+                ],
+                "headline-md": [
+                        "Inter"
+                ],
+                "arabic-display": [
+                        "Noto Kufi Arabic"
+                ]
+        },
+        "fontSize": {
+                "display-lg": [
+                        "48px",
+                        {
+                                "lineHeight": "1.1",
+                                "letterSpacing": "-0.02em",
+                                "fontWeight": "800"
+                        }
+                ],
+                "body-lg": [
+                        "18px",
+                        {
+                                "lineHeight": "1.6",
+                                "fontWeight": "400"
+                        }
+                ],
+                "headline-lg": [
+                        "32px",
+                        {
+                                "lineHeight": "1.2",
+                                "fontWeight": "700"
+                        }
+                ],
+                "body-md": [
+                        "16px",
+                        {
+                                "lineHeight": "1.6",
+                                "fontWeight": "400"
+                        }
+                ],
+                "label-md": [
+                        "14px",
+                        {
+                                "lineHeight": "1.4",
+                                "letterSpacing": "0.05em",
+                                "fontWeight": "500"
+                        }
+                ],
+                "headline-md": [
+                        "24px",
+                        {
+                                "lineHeight": "1.3",
+                                "fontWeight": "600"
+                        }
+                ],
+                "arabic-display": [
+                        "40px",
+                        {
+                                "lineHeight": "1.4",
+                                "fontWeight": "700"
+                        }
+                ]
+        }
+},
+    },
+  }
+</script>
+</head>
+<body class="bg-background text-on-background min-h-screen antialiased flex">
+<!-- SideNavBar Component -->
+<aside class="h-screen w-64 fixed left-0 top-0 border-r border-white/5 shadow-xl bg-slate-900 dark:bg-slate-950 flex flex-col py-8 z-40 hidden md:flex">
+<div class="px-6 mb-8 flex items-center gap-3">
+<span class="text-xl font-bold text-indigo-400 font-inter text-sm">Quizara</span>
+</div>
+<div class="px-6 mb-8 flex items-center gap-4">
+<img alt="Pro User Profile" class="w-12 h-12 rounded-full border-2 border-indigo-500/50" data-alt="A stylized 3D avatar of a professional gamer character, glowing with subtle indigo and cyan neon lights against a dark background. The character wears a sleek, futuristic headset and a confident expression. The overall aesthetic is high-tech, vibrant, and consistent with a competitive gaming identity." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCuykfwGIPBH8VO7-uUl5r44RMdtyuZXwaFgWuSUqfI6h8DKJd1N5SI6kiE60t69dYjfCekitjmGbxeAja0XCDQf0GPd5zWjYDerHeBhX7XBRw154EAxJG-EIeBmdk_uvy4JLYKUtVahR-x5bBBMnGgdMk-pedz7-1vOpHswZAVb7bc0V_RTta3CCNF3bcZOqjjKtH4D1fzKPTPEgwmENQm-WKChVpt7hdUNZMIg1S3PQv20ppBq-fWKMRG3clIb9na12Yuc1SybGlV"/>
+<div>
+<h2 class="font-headline-md text-headline-md text-on-background text-sm">Quizara Pro</h2>
+<p class="font-label-md text-label-md text-slate-400">Elite Rank #124</p>
+</div>
+</div>
+<nav class="flex-1 px-4 space-y-2">
+<a class="text-slate-400 px-4 py-3 flex items-center gap-3 hover:text-slate-200 hover:bg-white/5 transition-all hover:translate-x-1 duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" data-icon="home">home</span>
+<span class="font-label-md text-label-md">Home</span>
+</a>
+<a class="text-slate-400 px-4 py-3 flex items-center gap-3 hover:text-slate-200 hover:bg-white/5 transition-all hover:translate-x-1 duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" data-icon="widgets">widgets</span>
+<span class="font-label-md text-label-md">Categories</span>
+</a>
+<a class="text-slate-400 px-4 py-3 flex items-center gap-3 hover:text-slate-200 hover:bg-white/5 transition-all hover:translate-x-1 duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" data-icon="emoji_events">emoji_events</span>
+<span class="font-label-md text-label-md">Leaderboard</span>
+</a>
+<a class="text-slate-400 px-4 py-3 flex items-center gap-3 hover:text-slate-200 hover:bg-white/5 transition-all hover:translate-x-1 duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" data-icon="account_circle">account_circle</span>
+<span class="font-label-md text-label-md">Profile</span>
+</a>
+<a class="bg-indigo-600/10 text-indigo-400 border-r-4 border-indigo-500 px-4 py-3 flex items-center gap-3 hover:bg-white/5 transition-all hover:translate-x-1 duration-200 rounded-lg mt-4" href="#">
+<span class="material-symbols-outlined" data-icon="storefront">storefront</span>
+<span class="font-label-md text-label-md">Marketplace</span>
+</a>
+</nav>
+<div class="px-6 mt-auto">
+<button class="w-full py-3 rounded-lg bg-gradient-to-r from-primary-container to-inverse-primary text-on-primary-container font-label-md text-label-md font-bold hover:opacity-90 transition-opacity shadow-[0_4px_12px_rgba(128,131,255,0.2)]">Upgrade to Premium</button>
+</div>
+</aside>
+<!-- Main Content Wrapper -->
+<div class="flex-1 md:ml-64 flex flex-col h-screen overflow-hidden">
+<!-- TopAppBar Component -->
+<header class="bg-slate-950/80 backdrop-blur-xl font-inter tracking-tight flex items-center justify-between px-6 h-16 w-full max-w-screen-2xl mx-auto border-b border-white/10 shadow-2xl shadow-indigo-500/10 z-30 sticky top-0">
+<div class="flex items-center gap-4">
+<h1 class="text-2xl font-black bg-gradient-to-r from-indigo-500 to-cyan-400 bg-clip-text text-transparent">Quizara</h1>
+<span class="font-headline-md text-headline-md text-on-surface mx-4 hidden sm:block">Marketplace / المتجر</span>
+</div>
+<div class="flex items-center gap-6">
+<div class="flex items-center gap-2 bg-surface-container px-4 py-2 rounded-full border border-white/10">
+<span class="text-tertiary font-bold font-label-md text-label-md">12,450</span>
+<span class="material-symbols-outlined text-tertiary" data-weight="fill">monetization_on</span>
+</div>
+<div class="flex items-center gap-2 hidden md:flex">
+<button class="text-slate-400 font-medium hover:text-slate-100 transition-colors hover:bg-white/5 rounded-full transition-all duration-300 p-2 active:scale-95 transition-transform flex items-center justify-center">
+<span class="material-symbols-outlined" data-icon="language">language</span>
+</button>
+<button class="text-slate-400 font-medium hover:text-slate-100 transition-colors hover:bg-white/5 rounded-full transition-all duration-300 p-2 active:scale-95 transition-transform flex items-center justify-center">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+<button class="text-slate-400 font-medium hover:text-slate-100 transition-colors hover:bg-white/5 rounded-full transition-all duration-300 p-2 active:scale-95 transition-transform flex items-center justify-center">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+</button>
+</div>
+<img alt="User avatar" class="w-8 h-8 rounded-full border border-indigo-500/30" data-alt="A stylized 3D avatar of a professional gamer character, glowing with subtle indigo and cyan neon lights against a dark background. The character wears a sleek, futuristic headset and a confident expression. The overall aesthetic is high-tech, vibrant, and consistent with a competitive gaming identity." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAmteAokB1w__DK2ZK8lL-88COGcUpkxP9PAuO5y8CYSuF3xRqKLOCAPsMsLnaac3Gj5EHiPhExWh8JS94vjJtqzC0Jd3UeJ2ccbYmV-16r4TGyUKhILS33TNC0rhL3LDsqJeFW3BQ293RsiL_HuBMi8TOvR55yKk8SzVs7O92871X4RK0hdJuFTxvg7GI8RN0V99HOV0Ezky0S5NXrJAwprDm9YMZsVmMN5WKuqpaOB7-Uw_483Xs0bkG9OZX68PFOmj-nB1TZGCp0"/>
+</div>
+</header>
+<!-- Page Scrollable Area -->
+<main class="flex-1 overflow-y-auto p-container-margin md:p-xl space-y-xl pb-32">
+<!-- Tabs Navigation -->
+<div class="flex space-x-md border-b border-white/10 pb-4">
+<button class="font-label-md text-label-md text-indigo-400 font-bold border-b-2 border-indigo-500 pb-1 px-2">Power-ups</button>
+<button class="font-label-md text-label-md text-slate-400 font-medium hover:text-slate-100 transition-colors px-2">Skins &amp; Avatars</button>
+<button class="font-label-md text-label-md text-slate-400 font-medium hover:text-slate-100 transition-colors px-2">Subscriptions</button>
+</div>
+<!-- Featured Subscription Hero -->
+<section class="relative rounded-xl overflow-hidden bg-gradient-to-br from-[#1E2937] to-[#0F172A] border border-white/10 shadow-[inset_0_0_20px_rgba(128,131,255,0.1)]">
+<div class="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&amp;w=2564&amp;auto=format&amp;fit=crop')] opacity-20 bg-cover bg-center mix-blend-overlay" data-alt="Abstract digital background featuring flowing lines and light streaks in vibrant indigo, cyan, and deep navy tones. The composition is dynamic and suggests speed, technology, and premium quality, perfectly suited for a high-end gaming interface background. The lighting is dramatic and luminous."></div>
+<div class="relative z-10 p-xl flex flex-col md:flex-row items-center justify-between gap-xl">
+<div class="space-y-md max-w-2xl">
+<div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary-container/20 text-primary-fixed border border-primary-container/30">
+<span class="material-symbols-outlined text-sm" data-icon="stars">stars</span>
+<span class="font-label-md text-label-md text-xs uppercase tracking-widest font-bold">Featured Deal</span>
+</div>
+<h2 class="font-display-lg text-display-lg text-on-background bg-gradient-to-r from-white to-primary-fixed bg-clip-text text-transparent">Premium Pass</h2>
+<p class="font-body-lg text-body-lg text-on-surface-variant">Unlock the ultimate Quizara experience. Dominate the leaderboards with exclusive perks designed for champions.</p>
+<ul class="space-y-2 mt-4">
+<li class="flex items-center gap-3 text-on-surface font-body-md text-body-md">
+<span class="material-symbols-outlined text-secondary" data-icon="check_circle">check_circle</span> Unlimited games
+                        </li>
+<li class="flex items-center gap-3 text-on-surface font-body-md text-body-md">
+<span class="material-symbols-outlined text-secondary" data-icon="check_circle">check_circle</span> Exclusive power-ups
+                        </li>
+<li class="flex items-center gap-3 text-on-surface font-body-md text-body-md">
+<span class="material-symbols-outlined text-secondary" data-icon="check_circle">check_circle</span> No ads
+                        </li>
+</ul>
+</div>
+<div class="flex-shrink-0 bg-surface-container-high/50 backdrop-blur-md p-md rounded-lg border border-white/10 flex flex-col items-center gap-4 min-w-[200px]">
+<span class="font-headline-lg text-headline-lg text-white">$9.99<span class="text-sm text-on-surface-variant font-normal">/mo</span></span>
+<button class="w-full py-3 px-6 rounded-lg bg-gradient-to-r from-primary-container to-inverse-primary text-on-primary-container font-label-md text-label-md font-bold hover:shadow-[inset_0_0_15px_rgba(255,255,255,0.3)] transition-all shadow-[0_8px_20px_rgba(128,131,255,0.3)]">Subscribe Now</button>
+</div>
+</div>
+</section>
+<!-- Power-ups Grid -->
+<section class="space-y-md">
+<div class="flex items-center justify-between">
+<h3 class="font-headline-md text-headline-md text-on-background">Power-ups Arsenal</h3>
+<button class="text-secondary font-label-md text-label-md hover:text-secondary-fixed transition-colors">View All</button>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-lg">
+<!-- Power-up Card 1 -->
+<div class="bg-[#1E2937] rounded-lg border border-white/10 p-md flex flex-col items-center text-center gap-4 hover:border-primary/50 hover:shadow-[inset_0_0_20px_rgba(192,193,255,0.1)] transition-all group relative overflow-hidden">
+<div class="absolute inset-0 bg-gradient-to-b from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+<div class="w-16 h-16 rounded-full bg-surface-container-high flex items-center justify-center border border-white/5 group-hover:scale-110 transition-transform shadow-inner">
+<span class="material-symbols-outlined text-3xl text-secondary" data-icon="close">close</span> <!-- Using close as multiplier approx -->
+</div>
+<div>
+<h4 class="font-headline-md text-headline-md text-lg text-on-surface">Double Score (X2)</h4>
+<p class="font-body-md text-body-md text-sm text-on-surface-variant mt-1">Double points for the next 3 questions.</p>
+</div>
+<button class="mt-auto w-full py-2 px-4 rounded-lg bg-surface-container flex items-center justify-center gap-2 border border-white/5 hover:bg-surface-bright transition-colors">
+<span class="font-label-md text-label-md text-white font-bold">500</span>
+<span class="material-symbols-outlined text-tertiary text-sm" data-weight="fill">monetization_on</span>
+</button>
+</div>
+<!-- Power-up Card 2 -->
+<div class="bg-[#1E2937] rounded-lg border border-white/10 p-md flex flex-col items-center text-center gap-4 hover:border-primary/50 hover:shadow-[inset_0_0_20px_rgba(192,193,255,0.1)] transition-all group relative overflow-hidden">
+<div class="absolute inset-0 bg-gradient-to-b from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+<div class="w-16 h-16 rounded-full bg-surface-container-high flex items-center justify-center border border-white/5 group-hover:scale-110 transition-transform shadow-inner">
+<span class="material-symbols-outlined text-3xl text-error" data-icon="shield">shield</span>
+</div>
+<div>
+<h4 class="font-headline-md text-headline-md text-lg text-on-surface">Block Opponent</h4>
+<p class="font-body-md text-body-md text-sm text-on-surface-variant mt-1">Prevent opponent from answering for 5s.</p>
+</div>
+<button class="mt-auto w-full py-2 px-4 rounded-lg bg-surface-container flex items-center justify-center gap-2 border border-white/5 hover:bg-surface-bright transition-colors">
+<span class="font-label-md text-label-md text-white font-bold">750</span>
+<span class="material-symbols-outlined text-tertiary text-sm" data-weight="fill">monetization_on</span>
+</button>
+</div>
+<!-- Power-up Card 3 -->
+<div class="bg-[#1E2937] rounded-lg border border-white/10 p-md flex flex-col items-center text-center gap-4 hover:border-primary/50 hover:shadow-[inset_0_0_20px_rgba(192,193,255,0.1)] transition-all group relative overflow-hidden">
+<div class="absolute inset-0 bg-gradient-to-b from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+<div class="w-16 h-16 rounded-full bg-surface-container-high flex items-center justify-center border border-white/5 group-hover:scale-110 transition-transform shadow-inner">
+<span class="material-symbols-outlined text-3xl text-tertiary" data-icon="casino">casino</span>
+</div>
+<div>
+<h4 class="font-headline-md text-headline-md text-lg text-on-surface">Lucky Wheel</h4>
+<p class="font-body-md text-body-md text-sm text-on-surface-variant mt-1">Spin for random buffs or points.</p>
+</div>
+<button class="mt-auto w-full py-2 px-4 rounded-lg bg-surface-container flex items-center justify-center gap-2 border border-white/5 hover:bg-surface-bright transition-colors">
+<span class="font-label-md text-label-md text-white font-bold">300</span>
+<span class="material-symbols-outlined text-tertiary text-sm" data-weight="fill">monetization_on</span>
+</button>
+</div>
+<!-- Power-up Card 4 -->
+<div class="bg-[#1E2937] rounded-lg border border-white/10 p-md flex flex-col items-center text-center gap-4 hover:border-primary/50 hover:shadow-[inset_0_0_20px_rgba(192,193,255,0.1)] transition-all group relative overflow-hidden">
+<div class="absolute inset-0 bg-gradient-to-b from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+<div class="w-16 h-16 rounded-full bg-surface-container-high flex items-center justify-center border border-white/5 group-hover:scale-110 transition-transform shadow-inner">
+<span class="material-symbols-outlined text-3xl text-primary" data-icon="back_hand">back_hand</span>
+</div>
+<div>
+<h4 class="font-headline-md text-headline-md text-lg text-on-surface">Steal Question</h4>
+<p class="font-body-md text-body-md text-sm text-on-surface-variant mt-1">Take the current question for yourself.</p>
+</div>
+<button class="mt-auto w-full py-2 px-4 rounded-lg bg-surface-container flex items-center justify-center gap-2 border border-white/5 hover:bg-surface-bright transition-colors">
+<span class="font-label-md text-label-md text-white font-bold">1000</span>
+<span class="material-symbols-outlined text-tertiary text-sm" data-weight="fill">monetization_on</span>
+</button>
+</div>
+<!-- Power-up Card 5 -->
+<div class="bg-[#1E2937] rounded-lg border border-white/10 p-md flex flex-col items-center text-center gap-4 hover:border-primary/50 hover:shadow-[inset_0_0_20px_rgba(192,193,255,0.1)] transition-all group relative overflow-hidden">
+<div class="absolute inset-0 bg-gradient-to-b from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+<div class="w-16 h-16 rounded-full bg-surface-container-high flex items-center justify-center border border-white/5 group-hover:scale-110 transition-transform shadow-inner">
+<span class="material-symbols-outlined text-3xl text-secondary-fixed" data-icon="ac_unit">ac_unit</span>
+</div>
+<div>
+<h4 class="font-headline-md text-headline-md text-lg text-on-surface">Freeze Timer</h4>
+<p class="font-body-md text-body-md text-sm text-on-surface-variant mt-1">Stop the clock for 10 seconds.</p>
+</div>
+<button class="mt-auto w-full py-2 px-4 rounded-lg bg-surface-container flex items-center justify-center gap-2 border border-white/5 hover:bg-surface-bright transition-colors">
+<span class="font-label-md text-label-md text-white font-bold">400</span>
+<span class="material-symbols-outlined text-tertiary text-sm" data-weight="fill">monetization_on</span>
+</button>
+</div>
+</div>
+</section>
+</main>
+</div>
+</body></html>
