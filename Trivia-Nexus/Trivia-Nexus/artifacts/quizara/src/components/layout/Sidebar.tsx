@@ -1,17 +1,18 @@
 import React from "react";
 import { Link, useLocation } from "wouter";
-import { useAuth } from "@workspace/replit-auth-web";
+import { useSupabaseAuth } from "@/hooks/useSupabaseAuth";
 import { useGetProfile, getGetProfileQueryKey } from "@workspace/api-client-react";
 import { Home, LayoutGrid, Trophy, User, Settings, Zap, ShoppingBag, Gem, Swords, Layers, Sparkles, Flame, ClipboardList } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export function Sidebar() {
   const [location] = useLocation();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated } = useSupabaseAuth();
   const { t } = useI18n();
 
-  const { data: profile } = useGetProfile({
+  const { data: profile, isLoading } = useGetProfile({
     query: {
       queryKey: getGetProfileQueryKey(),
       enabled: isAuthenticated,
@@ -40,26 +41,7 @@ export function Sidebar() {
     <aside className="hidden md:flex flex-col fixed left-0 rtl:left-auto rtl:right-0 top-16 bottom-0 w-64 bg-card/60 border-r rtl:border-r-0 rtl:border-l border-white/5 shadow-xl z-40 backdrop-blur-sm">
       {/* User header */}
       <div className="px-6 py-6 border-b border-white/5">
-        {isAuthenticated && profile ? (
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-full bg-secondary/10 border-2 border-secondary/40 flex items-center justify-center">
-              <User className="h-5 w-5 text-secondary" />
-            </div>
-            <div className="min-w-0">
-              <p className="font-bold text-sm text-secondary truncate">{profile.username || "Player"}</p>
-              <div className="flex items-center gap-2">
-                <p className="text-xs text-muted-foreground truncate">
-                  {profile.role === "admin" ? t.nav.admin : `${profile.totalScore ?? 0} ${t.topbar.pts}`}
-                </p>
-                {profile.role !== "admin" && (
-                  <span className="flex items-center gap-0.5 text-xs text-amber-400">
-                    <Gem className="h-3 w-3" />{profile.coins ?? 0}
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-        ) : (
+        {!isAuthenticated ? (
           <div className="flex items-center gap-3">
             <div className="h-10 w-10 rounded-full bg-muted border border-border flex items-center justify-center">
               <User className="h-5 w-5 text-muted-foreground" />
@@ -67,6 +49,37 @@ export function Sidebar() {
             <div>
               <p className="font-bold text-sm text-foreground">{t.sidebar.guestPlayer}</p>
               <p className="text-xs text-muted-foreground">{t.sidebar.signInToSave}</p>
+            </div>
+          </div>
+        ) : isLoading || !profile ? (
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-10 w-10 rounded-full" />
+            <div className="space-y-1.5 flex-1">
+              <Skeleton className="h-3 w-20" />
+              <Skeleton className="h-2 w-24" />
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-full bg-secondary/10 border-2 border-secondary/40 flex items-center justify-center overflow-hidden">
+              {profile.profileImageUrl ? (
+                <img src={profile.profileImageUrl} alt={profile.username || "Player"} className="h-full w-full object-cover" />
+              ) : (
+                <User className="h-5 w-5 text-secondary" />
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="font-bold text-sm text-secondary truncate">{profile.username || "Player"}</p>
+              <div className="flex items-center gap-2">
+                <p className="text-xs text-muted-foreground truncate">
+                  {profile.role === "admin" ? t.nav.admin : `${profile.totalScore ?? 0} ${t.topbar.pts}`}
+                </p>
+                {profile.role !== "admin" && (
+                  <span className="flex items-center gap-0.5 text-xs text-amber-400 shrink-0">
+                    <Gem className="h-3 w-3" />{profile.coins ?? 0}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         )}

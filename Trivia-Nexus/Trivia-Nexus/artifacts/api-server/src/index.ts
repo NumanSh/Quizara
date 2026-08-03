@@ -1,21 +1,13 @@
+import "dotenv/config";
+
+if (process.env.NODE_ENV === "production" && process.env.ENABLE_ARENA_TEST_BYPASS === "true") {
+  throw new Error("CRITICAL SECURITY VIOLATION: ENABLE_ARENA_TEST_BYPASS is set to true in production mode!");
+}
 import http from "http";
 import app from "./app";
 import { logger } from "./lib/logger";
 import { setupArena } from "./lib/arenaManager";
-
-const rawPort = process.env["PORT"];
-
-if (!rawPort) {
-  throw new Error(
-    "PORT environment variable is required but was not provided.",
-  );
-}
-
-const port = Number(rawPort);
-
-if (Number.isNaN(port) || port <= 0) {
-  throw new Error(`Invalid PORT value: "${rawPort}"`);
-}
+const port = Number(process.env.PORT || 8080);
 
 const server = http.createServer(app);
 

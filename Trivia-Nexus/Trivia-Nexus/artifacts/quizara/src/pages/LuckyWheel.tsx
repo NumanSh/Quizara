@@ -2,12 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { useAuth } from "@workspace/replit-auth-web";
+import { useSupabaseAuth } from "@/hooks/useSupabaseAuth";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGetProfileQueryKey } from "@workspace/api-client-react";
 import { WatchAdModal } from "@/components/WatchAdModal";
 import { Gem, Heart, Zap, Star, Trophy, RefreshCw, ArrowRight } from "lucide-react";
+import { authFetch } from "@/lib/api";
 
 // Matches backend WHEEL_SEGMENTS order exactly
 const SEGMENTS = [
@@ -67,7 +68,7 @@ function RewardIcon({ type }: { type: string }) {
 }
 
 export default function LuckyWheel() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated } = useSupabaseAuth();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
@@ -84,7 +85,7 @@ export default function LuckyWheel() {
 
   const fetchStatus = async () => {
     try {
-      const res = await fetch("/api/wheel/status", { credentials: "include" });
+      const res = await authFetch("/api/wheel/status", { credentials: "include" });
       const data = await res.json();
       setStatus(data);
     } catch {
@@ -100,7 +101,7 @@ export default function LuckyWheel() {
     setResult(null);
 
     try {
-      const res = await fetch("/api/wheel/spin", { method: "POST", credentials: "include" });
+      const res = await authFetch("/api/wheel/spin", { method: "POST", credentials: "include" });
       if (res.status === 429) {
         toast({ title: "No spins left!", description: "Come back tomorrow or watch an ad.", variant: "destructive" });
         setSpinning(false);
@@ -137,7 +138,7 @@ export default function LuckyWheel() {
   const handleAdComplete = async () => {
     setShowAdModal(false);
     try {
-      const res = await fetch("/api/wheel/ad-spin", { method: "POST", credentials: "include" });
+      const res = await authFetch("/api/wheel/ad-spin", { method: "POST", credentials: "include" });
       if (res.ok) {
         toast({ title: "Extra spin granted!", description: "Spin the wheel again!" });
         await fetchStatus();

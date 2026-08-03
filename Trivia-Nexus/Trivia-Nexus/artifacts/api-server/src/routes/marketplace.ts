@@ -1,7 +1,8 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { marketplaceItemsTable, userInventoryTable, profilesTable, questionsTable } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
+import { checkAdCooldown } from "../lib/adTracker";
 
 const router: IRouter = Router();
 
@@ -164,7 +165,14 @@ router.post("/marketplace/purchase", async (req, res) => {
 
     let [profile] = await db.select().from(profilesTable).where(eq(profilesTable.userId, userId));
     if (!profile) {
-      [profile] = await db.insert(profilesTable).values({ userId }).returning();
+      [profile] = await db
+        .insert(profilesTable)
+        .values({ userId })
+        .onConflictDoUpdate({
+          target: profilesTable.userId,
+          set: { updatedAt: new Date() },
+        })
+        .returning();
     }
 
     if (profile.coins < item.price) {
@@ -172,36 +180,55 @@ router.post("/marketplace/purchase", async (req, res) => {
       return;
     }
 
-    // Deduct coins
-    const [updatedProfile] = await db
-      .update(profilesTable)
-      .set({ coins: profile.coins - item.price })
-      .where(eq(profilesTable.userId, userId))
-      .returning();
-
     // Cosmetics: only one per effect key (not stackable)
     const existingInv = await db
       .select()
       .from(userInventoryTable)
       .where(and(eq(userInventoryTable.userId, userId), eq(userInventoryTable.itemId, itemId)));
 
-    if (existingInv.length > 0) {
-      if (item.type === "cosmetic") {
-        // Don't add duplicate for cosmetics — refund
-        await db
-          .update(profilesTable)
-          .set({ coins: updatedProfile.coins + item.price })
-          .where(eq(profilesTable.userId, userId));
-        res.status(409).json({ error: "You already own this cosmetic" });
-        return;
-      }
-      await db
-        .update(userInventoryTable)
-        .set({ quantity: existingInv[0].quantity + 1 })
-        .where(eq(userInventoryTable.id, existingInv[0].id));
-    } else {
-      await db.insert(userInventoryTable).values({ userId, itemId, quantity: 1 });
+    if (existingInv.length > 0 && item.type === "cosmetic") {
+      res.status(409).json({ error: "You already own this cosmetic" });
+      return;
     }
+
+    // Perform transaction for coin deduction and inventory increment
+    const updatedProfile = await db.transaction(async (tx) => {
+      // 1. Deduct coins atomically
+      const [up] = await tx
+        .update(profilesTable)
+        .set({ coins: sql`${profilesTable.coins} - ${item.price}` })
+        .where(and(
+          eq(profilesTable.userId, userId),
+          sql`${profilesTable.coins} >= ${item.price}`
+        ))
+        .returning();
+
+      if (!up) {
+        throw new Error("INSUFFICIENT_COINS");
+      }
+
+      // 2. Insert or update inventory row atomically
+      if (item.type === "cosmetic") {
+        const inserted = await tx
+          .insert(userInventoryTable)
+          .values({ userId, itemId, quantity: 1 })
+          .onConflictDoNothing()
+          .returning();
+        if (inserted.length === 0) {
+          throw new Error("COSMETIC_ALREADY_OWNED");
+        }
+      } else {
+        await tx
+          .insert(userInventoryTable)
+          .values({ userId, itemId, quantity: 1 })
+          .onConflictDoUpdate({
+            target: [userInventoryTable.userId, userInventoryTable.itemId],
+            set: { quantity: sql`${userInventoryTable.quantity} + 1` },
+          });
+      }
+
+      return up;
+    });
 
     res.json({
       success: true,
@@ -210,6 +237,14 @@ router.post("/marketplace/purchase", async (req, res) => {
       remainingCoins: updatedProfile.coins,
     });
   } catch (err) {
+    if (err instanceof Error && err.message === "INSUFFICIENT_COINS") {
+      res.status(402).json({ error: "Insufficient coins" });
+      return;
+    }
+    if (err instanceof Error && err.message === "COSMETIC_ALREADY_OWNED") {
+      res.status(409).json({ error: "You already own this cosmetic" });
+      return;
+    }
     req.log.error({ err }, "Failed to purchase item");
     res.status(500).json({ error: "Internal server error" });
   }
@@ -241,12 +276,29 @@ router.post("/marketplace/use-item", async (req, res) => {
     }
 
     if (entry.quantity === 1) {
-      await db.delete(userInventoryTable).where(eq(userInventoryTable.id, entry.id));
+      const [deleted] = await db.delete(userInventoryTable)
+        .where(and(
+          eq(userInventoryTable.id, entry.id),
+          eq(userInventoryTable.quantity, 1)
+        ))
+        .returning();
+      if (!deleted) {
+        res.status(409).json({ error: "Item state modified, try again" });
+        return;
+      }
     } else {
-      await db
+      const [updated] = await db
         .update(userInventoryTable)
         .set({ quantity: entry.quantity - 1 })
-        .where(eq(userInventoryTable.id, entry.id));
+        .where(and(
+          eq(userInventoryTable.id, entry.id),
+          eq(userInventoryTable.quantity, entry.quantity)
+        ))
+        .returning();
+      if (!updated) {
+        res.status(409).json({ error: "Item state modified, try again" });
+        return;
+      }
     }
 
     res.json({ success: true, remainingQuantity: Math.max(0, entry.quantity - 1) });
@@ -311,7 +363,14 @@ router.post("/marketplace/equip", async (req, res) => {
 
     let [profile] = await db.select().from(profilesTable).where(eq(profilesTable.userId, userId));
     if (!profile) {
-      [profile] = await db.insert(profilesTable).values({ userId }).returning();
+      [profile] = await db
+        .insert(profilesTable)
+        .values({ userId })
+        .onConflictDoUpdate({
+          target: profilesTable.userId,
+          set: { updatedAt: new Date() },
+        })
+        .returning();
     }
 
     const [updated] = await db
@@ -350,6 +409,32 @@ router.post("/powerups/fifty-fifty", async (req, res) => {
     }
 
     // Verify and consume the item
+    const [item] = await db.select().from(marketplaceItemsTable)
+      .where(eq(marketplaceItemsTable.id, itemId));
+    
+    if (!item || item.type !== "powerup" || item.effect !== "fifty_fifty") {
+      res.status(400).json({ error: "Invalid power-up item" });
+      return;
+    }
+
+    // Look up question first — validate it exists and supports fifty-fifty before consuming the item
+    const [q] = await db.select({
+      questionType: questionsTable.questionType,
+      options: questionsTable.options,
+      correctAnswer: questionsTable.correctAnswer,
+    }).from(questionsTable).where(eq(questionsTable.id, questionId));
+
+    if (!q) {
+      res.status(404).json({ error: "Question not found" });
+      return;
+    }
+
+    const questionType = q.questionType ?? "multiple_choice";
+    if (questionType === "matching" || questionType === "ordering" || questionType === "hotspot") {
+      res.status(400).json({ error: "This power-up isn't available for this question type." });
+      return;
+    }
+
     const [entry] = await db.select().from(userInventoryTable)
       .where(and(eq(userInventoryTable.userId, userId), eq(userInventoryTable.itemId, itemId)));
 
@@ -359,22 +444,28 @@ router.post("/powerups/fifty-fifty", async (req, res) => {
     }
 
     if (entry.quantity === 1) {
-      await db.delete(userInventoryTable).where(eq(userInventoryTable.id, entry.id));
+      const [deleted] = await db.delete(userInventoryTable)
+        .where(and(
+          eq(userInventoryTable.id, entry.id),
+          eq(userInventoryTable.quantity, 1)
+        ))
+        .returning();
+      if (!deleted) {
+        res.status(409).json({ error: "Item state modified, try again" });
+        return;
+      }
     } else {
-      await db.update(userInventoryTable)
+      const [updated] = await db.update(userInventoryTable)
         .set({ quantity: entry.quantity - 1 })
-        .where(eq(userInventoryTable.id, entry.id));
-    }
-
-    // Look up question to find correct answer
-    const [q] = await db.select({
-      options: questionsTable.options,
-      correctAnswer: questionsTable.correctAnswer,
-    }).from(questionsTable).where(eq(questionsTable.id, questionId));
-
-    if (!q) {
-      res.json({ eliminatedOptions: [] });
-      return;
+        .where(and(
+          eq(userInventoryTable.id, entry.id),
+          eq(userInventoryTable.quantity, entry.quantity)
+        ))
+        .returning();
+      if (!updated) {
+        res.status(409).json({ error: "Item state modified, try again" });
+        return;
+      }
     }
 
     const opts = q.options as string[];
@@ -396,6 +487,11 @@ router.post("/powerups/watch-ad", async (req, res) => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
+  const cooldown = checkAdCooldown(req.user.id);
+  if (!cooldown.allowed) {
+    res.status(429).json({ error: "Ad reward cooldown active", remainingMs: cooldown.remainingMs });
+    return;
+  }
   try {
     const userId = req.user.id;
 
@@ -414,19 +510,14 @@ router.post("/powerups/watch-ad", async (req, res) => {
 
     const randomPowerup = eligible[Math.floor(Math.random() * eligible.length)]!;
 
-    // Add to user inventory
-    const [existing] = await db.select().from(userInventoryTable)
-      .where(and(eq(userInventoryTable.userId, userId), eq(userInventoryTable.itemId, randomPowerup.id)));
-
-    if (existing) {
-      await db.update(userInventoryTable)
-        .set({ quantity: existing.quantity + 1 })
-        .where(eq(userInventoryTable.id, existing.id));
-    } else {
-      await db.insert(userInventoryTable).values({
-        userId, itemId: randomPowerup.id, quantity: 1,
+    // Add to user inventory atomically using upsert
+    await db.insert(userInventoryTable)
+      .values({ userId, itemId: randomPowerup.id, quantity: 1 })
+      .onConflictDoUpdate({
+        target: [userInventoryTable.userId, userInventoryTable.itemId],
+        set: { quantity: sql`${userInventoryTable.quantity} + 1` }
       });
-    }
+
 
     res.json({
       powerup: {

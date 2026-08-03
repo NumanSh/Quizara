@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { useAuth } from "@workspace/replit-auth-web";
+import { useSupabaseAuth } from "@/hooks/useSupabaseAuth";
 import { useGetProfile, getGetProfileQueryKey } from "@workspace/api-client-react";
 import { Globe, Bell, Settings, User, LogOut, Shield, Gem, Check } from "lucide-react";
 import {
@@ -14,7 +14,7 @@ import { RankBadge } from "@/components/RankBadge";
 import { useI18n } from "@/lib/i18n";
 
 export function TopBar() {
-  const { user, isAuthenticated, login, logout } = useAuth();
+  const { user, isAuthenticated, login, logout } = useSupabaseAuth();
   const { t, lang, setLang } = useI18n();
 
   const { data: profile } = useGetProfile({
@@ -92,14 +92,18 @@ export function TopBar() {
           {isAuthenticated ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button className="ml-2 rtl:ml-0 rtl:mr-2 h-8 w-8 rounded-full border border-secondary/30 bg-secondary/10 flex items-center justify-center hover:bg-secondary/20 transition-colors">
-                  <User className="h-4 w-4 text-secondary" />
+                <button className="ml-2 rtl:ml-0 rtl:mr-2 h-8 w-8 rounded-full border border-secondary/30 bg-secondary/10 flex items-center justify-center hover:bg-secondary/20 transition-colors overflow-hidden">
+                  {profile?.profileImageUrl ? (
+                    <img src={profile.profileImageUrl} alt="Profile" className="h-full w-full object-cover" />
+                  ) : (
+                    <User className="h-4 w-4 text-secondary" />
+                  )}
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56 border-border bg-card">
                 <div className="px-3 py-2">
                   <div className="flex items-center gap-2">
-                    <p className="font-semibold text-sm">{profile?.username || user?.firstName || "Player"}</p>
+                    <p className="font-semibold text-sm">{profile?.username || user?.user_metadata?.full_name || user?.user_metadata?.name || "Player"}</p>
                     {profile && <RankBadge totalXp={(profile as any).totalXp ?? 0} size="xs" />}
                   </div>
                   <div className="flex items-center gap-3 mt-1">

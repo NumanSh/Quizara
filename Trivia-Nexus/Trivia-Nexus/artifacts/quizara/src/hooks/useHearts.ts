@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { authFetch } from "@/lib/api";
 
 export const MAX_HEARTS = 6;
 const HEARTS_PER_AD = 1;
@@ -55,7 +56,7 @@ export function useHearts(isAuthenticated: boolean) {
   const fetchHearts = useCallback(async () => {
     if (isAuthenticated) {
       try {
-        const r = await fetch("/api/hearts", { credentials: "include" });
+        const r = await authFetch("/api/hearts", { credentials: "include" });
         const d = await r.json();
         if (!d.guest) {
           setState({ hearts: d.hearts, nextRefillMs: d.nextRefillMs, maxHearts: d.maxHearts, isLoading: false, canPlay: d.hearts > 0 });
@@ -86,7 +87,7 @@ export function useHearts(isAuthenticated: boolean) {
   const deductHeart = useCallback(async () => {
     if (isAuthenticated) {
       try {
-        const r = await fetch("/api/hearts/deduct", { method: "POST", credentials: "include" });
+        const r = await authFetch("/api/hearts/deduct", { method: "POST", credentials: "include" });
         const d = await r.json();
         if (!d.guest) {
           setState({ hearts: d.hearts, nextRefillMs: d.nextRefillMs, maxHearts: d.maxHearts, isLoading: false, canPlay: d.hearts > 0 });
@@ -109,7 +110,7 @@ export function useHearts(isAuthenticated: boolean) {
   const watchAd = useCallback(async () => {
     if (isAuthenticated) {
       try {
-        const r = await fetch("/api/hearts/watch-ad", { method: "POST", credentials: "include" });
+        const r = await authFetch("/api/hearts/watch-ad", { method: "POST", credentials: "include" });
         const d = await r.json();
         if (!d.guest) {
           setState({ hearts: d.hearts, nextRefillMs: d.nextRefillMs, maxHearts: d.maxHearts, isLoading: false, canPlay: d.hearts > 0 });

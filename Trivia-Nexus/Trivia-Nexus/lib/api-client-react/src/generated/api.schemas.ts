@@ -79,7 +79,17 @@ export interface UserProfile {
   coins: number;
   gamesPlayed: number;
   bestScore?: number;
+  /** Cumulative XP earned across all seasons. Used to determine rank title. */
+  totalXp?: number;
+  /** Rank title derived from totalXp (Rookie, Scholar, Expert, Master, Legend) */
+  rankTitle?: string;
   createdAt: string;
+  /** @nullable */
+  activeAvatarFrame?: string | null;
+  /** @nullable */
+  activeProfileBg?: string | null;
+  /** @nullable */
+  activeUsernameColor?: string | null;
 }
 
 export type UpdateProfileBodyRole =
@@ -91,7 +101,13 @@ export const UpdateProfileBodyRole = {
 } as const;
 
 export interface UpdateProfileBody {
+  /**
+   * @minLength 3
+   * @maxLength 20
+   * @pattern ^[a-zA-Z0-9_]+$
+   */
   username?: string;
+  /** @maxLength 100 */
   country?: string;
   role?: UpdateProfileBodyRole;
   adminCode?: string;
@@ -277,6 +293,10 @@ export interface SubmitAnswerBody {
   selectedAnswer?: number;
   /** JSON-encoded answer for complex types (ordering, matching, hotspot) */
   answerData?: string;
+  /** Apply double score powerup to this answer */
+  doubleScore?: boolean;
+  /** ID of the double score powerup item in inventory */
+  doubleScoreItemId?: string;
 }
 
 export interface AnswerResult {

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
-import { useAuth } from "@workspace/replit-auth-web";
+import { useSupabaseAuth } from "@/hooks/useSupabaseAuth";
 import {
   useGetProfile, getGetProfileQueryKey,
   useUpdateProfile,
@@ -15,6 +15,7 @@ import { User, Trophy, Target, Gamepad2, Shield, Save, Swords, Crown, Flame, Med
 import { useStreak } from "@/hooks/useStreak";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { authFetch } from "@/lib/api";
 import { getFrameStyle, getBgStyle, getUsernameStyle, FRAME_DEFS, BG_DEFS, COLOR_DEFS } from "@/lib/cosmetics";
 import { RankBadge } from "@/components/RankBadge";
 import { getXpProgress, XP_RANKS } from "@/lib/xpRank";
@@ -63,7 +64,7 @@ function WinRateArc({ winRate }: { winRate: number }) {
 }
 
 export default function Profile() {
-  const { isAuthenticated, login } = useAuth();
+  const { isAuthenticated, login } = useSupabaseAuth();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
 
@@ -94,7 +95,7 @@ export default function Profile() {
   useEffect(() => {
     if (!isAuthenticated) return;
     setBadgesLoading(true);
-    fetch("/api/badges")
+    authFetch("/api/badges")
       .then(r => r.json())
       .then(d => setBadges(Array.isArray(d) ? d : []))
       .catch(() => {})
@@ -103,7 +104,7 @@ export default function Profile() {
 
   const claimBadgeCoins = async (badgeId: string) => {
     try {
-      const res = await fetch(`/api/badges/${badgeId}/claim`, { method: "POST" });
+      const res = await authFetch(`/api/badges/${badgeId}/claim`, { method: "POST" });
       if (!res.ok) return;
       const data = await res.json();
       setBadges(prev => prev.map(b => b.id === badgeId ? { ...b, coinsClaimed: true } : b));
@@ -159,15 +160,40 @@ export default function Profile() {
     );
   }
 
+  if (updateProfile.isError || (profile === undefined && !isLoading)) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center gap-6 py-20 text-center px-4">
+        <div className="h-20 w-20 rounded-full bg-destructive/10 border border-destructive/20 flex items-center justify-center">
+          <Flame className="h-10 w-10 text-destructive" />
+        </div>
+        <h2 className="text-2xl font-bold">Failed to load profile</h2>
+        <p className="text-muted-foreground max-w-sm">
+          There was a problem retrieving your profile data. Please check your connection and try again.
+        </p>
+        <Button onClick={() => refetch()} variant="outline" className="gap-2">
+          <Gamepad2 className="h-4 w-4" />
+          Retry
+        </Button>
+      </div>
+    );
+  }
+
   if (isLoading || !profile) {
     return (
-      <div className="flex-1 container max-w-2xl mx-auto px-4 py-10 space-y-6">
-        <Skeleton className="h-10 w-48" />
+      <div className="flex-1 container max-w-2xl mx-auto px-4 py-10 space-y-8">
+        <div className="flex items-center gap-4">
+          <Skeleton className="h-16 w-16 rounded-2xl" />
+          <div className="space-y-2">
+            <Skeleton className="h-8 w-48" />
+            <Skeleton className="h-4 w-32" />
+          </div>
+        </div>
+        <Skeleton className="h-24 rounded-2xl w-full" />
+        <Skeleton className="h-40 rounded-2xl w-full" />
         <div className="grid grid-cols-3 gap-4">
           {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-28 rounded-xl" />)}
         </div>
-        <Skeleton className="h-48 rounded-xl" />
-        <Skeleton className="h-64 rounded-xl" />
+        <Skeleton className="h-64 rounded-2xl w-full" />
       </div>
     );
   }
@@ -192,11 +218,15 @@ export default function Profile() {
             className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center shrink-0 transition-all duration-300"
             style={frameStyle}
           >
-            <User className="h-8 w-8 text-primary" />
+            {profile.profileImageUrl ? (
+              <img src={profile.profileImageUrl} alt={profile.username || "User"} className="h-full w-full object-cover" />
+            ) : (
+              <User className="h-8 w-8 text-primary" />
+            )}
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-3xl font-bold" style={colorStyle}>
+              <h1 className="text-3xl font-bold truncate max-w-[300px]" style={colorStyle}>
                 {profile.username || "Your Profile"}
               </h1>
               <RankBadge totalXp={(profile as any).totalXp ?? 0} size="sm" />

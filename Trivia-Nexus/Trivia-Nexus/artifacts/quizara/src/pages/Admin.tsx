@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
-import { useAuth } from "@workspace/replit-auth-web";
+import { useSupabaseAuth } from "@/hooks/useSupabaseAuth";
 import {
   useGetAdminStats, getGetAdminStatsQueryKey,
   useAdminListCategories, getAdminListCategoriesQueryKey,
@@ -24,13 +24,56 @@ import {
   CheckCircle2, Search, BarChart3, ArrowUp, ArrowDown, Layers,
   ListOrdered, Shuffle, Music, Crosshair, GripVertical, Settings, Eye, EyeOff, KeyRound,
   UserCheck, UserX, Crown, UserRound, Medal, Gamepad2, Gem, Heart, ShoppingBag, ToggleRight,
-  ClipboardList, Zap, Target,
+  ClipboardList, Zap, Target, Upload, Download, AlertTriangle, Loader2, Coins,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { authFetch } from "@/lib/api";
 
 type QuestionType = "multiple_choice" | "true_false" | "image" | "fill_blank" | "ordering" | "matching" | "audio" | "hotspot";
-type AdminSection = "overview" | "categories" | "questions" | "users" | "settings" | "badges" | "marketplace" | "daily-tasks";
+type AdminSection = "overview" | "categories" | "questions" | "users" | "settings" | "badges" | "marketplace" | "daily-tasks" | "economy";
+
+const ECONOMY_MODE_LABELS: Record<string, string> = {
+  quiz: "Quiz (Solo)",
+  worlds: "Worlds / Levels",
+  blitz: "Blitz",
+  arena: "Arena (1v1 Ranked)",
+  streak_checkin: "Streak Check-in",
+  streak_ad: "Streak Ad Bonus",
+  hearts_bonus: "Hearts Fail-Bonus Ad",
+  wheel: "Daily Wheel",
+};
+
+const ECONOMY_METRIC_LABELS: Record<string, string> = {
+  coinsPerCorrect: "Coins per Correct Answer",
+  scorePerCorrect: "Score per Correct Answer",
+  xpPerCorrect: "Battle Pass XP per Correct Answer",
+  xpOnComplete: "Battle Pass XP on Completion",
+  coinsPerCorrectBase: "Coins per Correct (before difficulty ×)",
+  scorePerCorrectBase: "Score per Correct (before difficulty ×)",
+  xpPerCorrectOnComplete: "Battle Pass XP per Correct (on completion)",
+  xpCompleteMinimum: "Minimum Battle Pass XP on Completion",
+  coinsPerWin: "Coins per Win",
+  coinsLostPerLoss: "Coins Lost per Loss",
+  scorePerWin: "Score per Win",
+  xpPerWin: "Battle Pass XP per Win",
+  milestone7Coins: "7-Day Milestone Coins",
+  milestone30Coins: "30-Day Milestone Coins",
+  milestone100Coins: "100-Day Milestone Coins",
+  xpPerCheckin: "Battle Pass XP per Check-in",
+  coins: "Coins per Ad Watch",
+  scoreMultiplier: "Score Multiplier (× session score)",
+  coins_50: "Wheel Segment: 50-Coin Slot",
+  coins_100: "Wheel Segment: 100-Coin Slot",
+  coins_200: "Wheel Segment: 200-Coin Slot",
+  jackpot: "Wheel Segment: Jackpot Coins",
+  powerup_fallback: "Wheel: Power-up Fallback Coins",
+  xp_100: "Wheel Segment: XP Amount",
+};
+
+function economyMetricLabel(metric: string): string {
+  return ECONOMY_METRIC_LABELS[metric] ?? metric;
+}
 
 const QUESTION_TYPE_CONFIG: Record<QuestionType, { label: string; icon: any; color: string; description: string }> = {
   multiple_choice: { label: "Multiple Choice", icon: CheckCircle2, color: "text-cyan-400 bg-cyan-500/10 border-cyan-500/30", description: "4 answer options, one correct" },
@@ -96,7 +139,7 @@ function DifficultyBadge({ difficulty }: { difficulty: number }) {
 }
 
 export default function Admin() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated } = useSupabaseAuth();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -135,6 +178,78 @@ export default function Admin() {
 
   const [qDialog, setQDialog] = useState<{ mode: "create" | "edit"; item?: any } | null>(null);
   const [qForm, setQForm] = useState({ ...BLANK_Q, options: ["", "", "", ""] });
+
+  // Excel bulk import state
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importPreview, setImportPreview] = useState<any | null>(null);
+  const [importPreviewing, setImportPreviewing] = useState(false);
+  const [importCommitting, setImportCommitting] = useState(false);
+
+  const closeImportDialog = () => {
+    setImportDialogOpen(false);
+    setImportFile(null);
+    setImportPreview(null);
+  };
+
+  const handleDownloadTemplate = async () => {
+    try {
+      const res = await authFetch("/api/admin/questions/import/template");
+      if (!res.ok) throw new Error("Failed to download template");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "questions_template.xlsx";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message ?? "Failed to download template", variant: "destructive" });
+    }
+  };
+
+  const handlePreviewImport = async () => {
+    if (!importFile) return;
+    setImportPreviewing(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", importFile);
+      const res = await authFetch("/api/admin/questions/import/preview", { method: "POST", body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Preview failed");
+      setImportPreview(data);
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message ?? "Failed to preview import", variant: "destructive" });
+    } finally {
+      setImportPreviewing(false);
+    }
+  };
+
+  const handleCommitImport = async () => {
+    if (!importPreview?.importId) return;
+    setImportCommitting(true);
+    try {
+      const res = await authFetch("/api/admin/questions/import/commit", {
+        method: "POST",
+        body: JSON.stringify({ importId: importPreview.importId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Import failed");
+      toast({
+        title: "Import complete",
+        description: `${data.questionsImported} question(s) imported${data.categoriesCreated > 0 ? `, ${data.categoriesCreated} categor${data.categoriesCreated === 1 ? "y" : "ies"} created` : ""}.`,
+      });
+      queryClient.invalidateQueries({ queryKey: getAdminListQuestionsQueryKey({ offset: 0, limit: 200 }) });
+      queryClient.invalidateQueries({ queryKey: getAdminListCategoriesQueryKey() });
+      closeImportDialog();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message ?? "Failed to commit import", variant: "destructive" });
+    } finally {
+      setImportCommitting(false);
+    }
+  };
 
   // Complex type state
   const [orderingItems, setOrderingItems] = useState<string[]>(["", "", "", ""]);
@@ -176,7 +291,7 @@ export default function Admin() {
     setUsersLoading(true);
     try {
       const params = new URLSearchParams({ limit: "100", offset: "0", ...(search ? { search } : {}) });
-      const res = await fetch(`/api/admin/users?${params}`);
+      const res = await authFetch(`/api/admin/users?${params}`);
       const data = await res.json();
       setUsersData(data.users ?? []);
       setUsersTotal(data.total ?? 0);
@@ -190,7 +305,7 @@ export default function Admin() {
   const setUserRole = async (userId: string, role: "admin" | "player") => {
     setRolePending(userId);
     try {
-      const res = await fetch(`/api/admin/users/${userId}/role`, {
+      const res = await authFetch(`/api/admin/users/${userId}/role`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role }),
@@ -214,7 +329,7 @@ export default function Admin() {
   const adjustCoins = async (userId: string, delta: number) => {
     setCoinsPending(userId);
     try {
-      const res = await fetch(`/api/admin/users/${userId}/coins`, {
+      const res = await authFetch(`/api/admin/users/${userId}/coins`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ coins: delta }),
@@ -240,7 +355,7 @@ export default function Admin() {
   const adjustHearts = async (userId: string, delta: number) => {
     setHeartsPending(userId);
     try {
-      const res = await fetch(`/api/admin/users/${userId}/hearts`, {
+      const res = await authFetch(`/api/admin/users/${userId}/hearts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ hearts: delta }),
@@ -266,7 +381,7 @@ export default function Admin() {
   const fetchBadges = async () => {
     setBadgesLoading(true);
     try {
-      const res = await fetch("/api/admin/badges");
+      const res = await authFetch("/api/admin/badges");
       const data = await res.json();
       setBadgesList(Array.isArray(data) ? data : []);
     } catch {
@@ -280,7 +395,7 @@ export default function Admin() {
     const isCreate = badgeDialog?.mode === "create";
     const url = isCreate ? "/api/admin/badges" : `/api/admin/badges/${badgeDialog?.item?.id}`;
     try {
-      const res = await fetch(url, {
+      const res = await authFetch(url, {
         method: isCreate ? "POST" : "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -302,7 +417,7 @@ export default function Admin() {
   const deleteBadge = async (id: string) => {
     setBadgeDeletePending(id);
     try {
-      await fetch(`/api/admin/badges/${id}`, { method: "DELETE" });
+      await authFetch(`/api/admin/badges/${id}`, { method: "DELETE" });
       await fetchBadges();
       toast({ title: "Badge deleted" });
     } catch {
@@ -314,7 +429,7 @@ export default function Admin() {
 
   const toggleBadgeActive = async (badge: any) => {
     try {
-      await fetch(`/api/admin/badges/${badge.id}`, {
+      await authFetch(`/api/admin/badges/${badge.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ isActive: !badge.isActive }),
@@ -382,7 +497,7 @@ export default function Admin() {
   const fetchMktItems = async () => {
     setMktLoading(true);
     try {
-      const res = await fetch("/api/admin/marketplace");
+      const res = await authFetch("/api/admin/marketplace");
       const data = await res.json();
       setMktItems(Array.isArray(data) ? data : []);
     } catch {
@@ -397,7 +512,7 @@ export default function Admin() {
     const isCreate = mktDialog?.mode === "create";
     const url = isCreate ? "/api/admin/marketplace" : `/api/admin/marketplace/${mktDialog?.item?.id}`;
     try {
-      const res = await fetch(url, {
+      const res = await authFetch(url, {
         method: isCreate ? "POST" : "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...mktForm, price: Number(mktForm.price) }),
@@ -416,7 +531,7 @@ export default function Admin() {
   const deleteMktItem = async (id: string) => {
     setMktDeletePending(id);
     try {
-      await fetch(`/api/admin/marketplace/${id}`, { method: "DELETE" });
+      await authFetch(`/api/admin/marketplace/${id}`, { method: "DELETE" });
       await fetchMktItems();
       toast({ title: "Item deleted" });
     } catch {
@@ -428,7 +543,7 @@ export default function Admin() {
 
   const toggleMktActive = async (item: any) => {
     try {
-      await fetch(`/api/admin/marketplace/${item.id}`, {
+      await authFetch(`/api/admin/marketplace/${item.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ isActive: !item.isActive }),
@@ -440,7 +555,7 @@ export default function Admin() {
   };
 
   // Daily Tasks state
-  const BLANK_TASK = { title: "", description: "", taskType: "quiz_count", targetValue: 3, rewardCoins: 50, rewardXp: 100, categoryId: "", isActive: true };
+  const BLANK_TASK = { title: "", description: "", type: "quiz_count", targetValue: 3, coinReward: 50, xpReward: 100, categoryId: "", isActive: true };
   const [taskItems, setTaskItems] = useState<any[]>([]);
   const [taskLoading, setTaskLoading] = useState(false);
   const [taskDialog, setTaskDialog] = useState<{ mode: "create" | "edit"; item?: any } | null>(null);
@@ -451,7 +566,7 @@ export default function Admin() {
   const fetchTaskItems = async () => {
     setTaskLoading(true);
     try {
-      const res = await fetch("/api/admin/daily-tasks");
+      const res = await authFetch("/api/admin/daily-tasks");
       const data = await res.json();
       setTaskItems(Array.isArray(data) ? data : []);
     } catch {
@@ -466,9 +581,9 @@ export default function Admin() {
     const isCreate = taskDialog?.mode === "create";
     const url = isCreate ? "/api/admin/daily-tasks" : `/api/admin/daily-tasks/${taskDialog?.item?.id}`;
     try {
-      const payload: any = { ...taskForm, targetValue: Number(taskForm.targetValue), rewardCoins: Number(taskForm.rewardCoins), rewardXp: Number(taskForm.rewardXp) };
+      const payload: any = { ...taskForm, targetValue: Number(taskForm.targetValue), coinReward: Number(taskForm.coinReward), xpReward: Number(taskForm.xpReward) };
       if (!payload.categoryId) delete payload.categoryId;
-      const res = await fetch(url, { method: isCreate ? "POST" : "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const res = await authFetch(url, { method: isCreate ? "POST" : "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       if (!res.ok) { const e = await res.json(); throw new Error(e.error ?? "Failed"); }
       await fetchTaskItems();
       setTaskDialog(null);
@@ -483,7 +598,7 @@ export default function Admin() {
   const deleteTaskItem = async (id: string) => {
     setTaskDeletePending(id);
     try {
-      await fetch(`/api/admin/daily-tasks/${id}`, { method: "DELETE" });
+      await authFetch(`/api/admin/daily-tasks/${id}`, { method: "DELETE" });
       await fetchTaskItems();
       toast({ title: "Task deleted" });
     } catch {
@@ -495,10 +610,65 @@ export default function Admin() {
 
   const toggleTaskActive = async (item: any) => {
     try {
-      await fetch(`/api/admin/daily-tasks/${item.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ isActive: !item.isActive }) });
+      await authFetch(`/api/admin/daily-tasks/${item.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ isActive: !item.isActive }) });
       await fetchTaskItems();
     } catch {
       toast({ title: "Error", variant: "destructive" });
+    }
+  };
+
+  // Economy state
+  const [economyRates, setEconomyRates] = useState<Record<string, Record<string, number>>>({});
+  const [economyDrafts, setEconomyDrafts] = useState<Record<string, Record<string, string>>>({});
+  const [economyLoading, setEconomyLoading] = useState(false);
+  const [economySavingMode, setEconomySavingMode] = useState<string | null>(null);
+
+  const fetchEconomy = async () => {
+    setEconomyLoading(true);
+    try {
+      const res = await authFetch("/api/admin/economy");
+      const data = await res.json();
+      setEconomyRates(data);
+      const drafts: Record<string, Record<string, string>> = {};
+      for (const [mode, metrics] of Object.entries(data as Record<string, Record<string, number>>)) {
+        drafts[mode] = Object.fromEntries(Object.entries(metrics).map(([k, v]) => [k, String(v)]));
+      }
+      setEconomyDrafts(drafts);
+    } catch {
+      toast({ title: "Error", description: "Could not load economy settings", variant: "destructive" });
+    } finally {
+      setEconomyLoading(false);
+    }
+  };
+
+  const setEconomyDraftValue = (mode: string, metric: string, value: string) => {
+    setEconomyDrafts(prev => ({ ...prev, [mode]: { ...prev[mode], [metric]: value } }));
+  };
+
+  const saveEconomyMode = async (mode: string) => {
+    setEconomySavingMode(mode);
+    try {
+      const draft = economyDrafts[mode] ?? {};
+      const updates: Record<string, number> = {};
+      for (const [metric, raw] of Object.entries(draft)) {
+        const n = Number(raw);
+        if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) {
+          throw new Error(`"${economyMetricLabel(metric)}" must be a non-negative whole number`);
+        }
+        updates[metric] = n;
+      }
+      const res = await authFetch(`/api/admin/economy/${mode}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates),
+      });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error ?? "Failed"); }
+      setEconomyRates(prev => ({ ...prev, [mode]: updates }));
+      toast({ title: `${ECONOMY_MODE_LABELS[mode] ?? mode} rates updated` });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message ?? "Failed to save economy rates", variant: "destructive" });
+    } finally {
+      setEconomySavingMode(null);
     }
   };
 
@@ -512,7 +682,7 @@ export default function Admin() {
   const fetchAdminCode = async () => {
     setSettingsLoading(true);
     try {
-      const res = await fetch("/api/admin/settings");
+      const res = await authFetch("/api/admin/settings");
       const data = await res.json();
       setCurrentAdminCode(data.adminCode ?? "");
     } catch {
@@ -529,7 +699,7 @@ export default function Admin() {
     }
     setCodeLoading(true);
     try {
-      const res = await fetch("/api/admin/settings/admin-code", {
+      const res = await authFetch("/api/admin/settings/admin-code", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ adminCode: newAdminCode.trim() }),
@@ -711,6 +881,7 @@ export default function Admin() {
     if (section === "badges" && isAdmin) fetchBadges();
     if (section === "marketplace" && isAdmin) fetchMktItems();
     if (section === "daily-tasks" && isAdmin) fetchTaskItems();
+    if (section === "economy" && isAdmin) fetchEconomy();
   }, [section, isAdmin]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const moveOrderingItem = (idx: number, dir: -1 | 1) => {
@@ -768,6 +939,7 @@ export default function Admin() {
             { id: "badges", label: "Badges", icon: Medal },
             { id: "marketplace", label: "Marketplace", icon: ShoppingBag },
             { id: "daily-tasks", label: "Daily Tasks", icon: ClipboardList },
+            { id: "economy", label: "Economy", icon: Coins },
           ].map(({ id, label, icon: Icon }) => (
             <button
               key={id}
@@ -972,9 +1144,14 @@ export default function Admin() {
                 <h2 className="text-lg font-bold">Questions</h2>
                 <p className="text-sm text-muted-foreground">{filteredQs.length} of {questions.length} questions</p>
               </div>
-              <Button onClick={() => openQCreate()} className="bg-primary text-primary-foreground">
-                <Plus className="mr-2 h-4 w-4" /> Add Question
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" onClick={() => setImportDialogOpen(true)}>
+                  <Upload className="mr-2 h-4 w-4" /> Import from Excel
+                </Button>
+                <Button onClick={() => openQCreate()} className="bg-primary text-primary-foreground">
+                  <Plus className="mr-2 h-4 w-4" /> Add Question
+                </Button>
+              </div>
             </div>
 
             {/* Filters */}
@@ -1463,6 +1640,61 @@ export default function Admin() {
           </div>
         )}
 
+        {/* ── Economy Section ── */}
+        {section === "economy" && (
+          <div className="space-y-4">
+            <div>
+              <h2 className="text-lg font-bold">Economy</h2>
+              <p className="text-sm text-muted-foreground">
+                Coins, score, and Battle Pass XP rates for every mode. Changes take effect immediately for new plays.
+              </p>
+            </div>
+
+            {economyLoading ? (
+              <div className="space-y-3">
+                {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-32 rounded-xl" />)}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {Object.entries(economyDrafts).map(([mode, metrics]) => (
+                  <div key={mode} className="rounded-xl border border-border bg-card p-5 space-y-4">
+                    <div className="flex items-center gap-3">
+                      <div className="h-9 w-9 rounded-lg bg-amber-500/10 flex items-center justify-center shrink-0">
+                        <Coins className="h-4 w-4 text-amber-400" />
+                      </div>
+                      <p className="font-semibold text-sm">{ECONOMY_MODE_LABELS[mode] ?? mode}</p>
+                    </div>
+
+                    <div className="space-y-3">
+                      {Object.entries(metrics).map(([metric, value]) => (
+                        <div key={metric} className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">{economyMetricLabel(metric)}</Label>
+                          <Input
+                            type="number"
+                            min={0}
+                            step={1}
+                            value={value}
+                            onChange={e => setEconomyDraftValue(mode, metric, e.target.value)}
+                            className="bg-muted/30 border-border"
+                          />
+                        </div>
+                      ))}
+                    </div>
+
+                    <Button
+                      onClick={() => saveEconomyMode(mode)}
+                      disabled={economySavingMode === mode}
+                      className="w-full bg-primary text-primary-foreground"
+                    >
+                      {economySavingMode === mode ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...</> : "Save"}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ── Badges Section ── */}
         {section === "badges" && (
           <div className="space-y-4">
@@ -1933,7 +2165,7 @@ export default function Admin() {
               {taskItems.map((item: any) => {
                 const typeLabel: Record<string, string> = { quiz_count: "Complete Quizzes", score_target: "Score Target", category_quiz: "Category Quiz", correct_answers: "Correct Answers" };
                 const typeIcon: Record<string, any> = { quiz_count: ClipboardList, score_target: Target, category_quiz: Layers, correct_answers: CheckCircle2 };
-                const TypeIcon = typeIcon[item.taskType] ?? ClipboardList;
+                const TypeIcon = typeIcon[item.type] ?? ClipboardList;
                 return (
                   <div key={item.id} className={cn("rounded-xl border border-border bg-card p-4 flex items-center gap-4", !item.isActive && "opacity-50")}>
                     <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
@@ -1942,21 +2174,21 @@ export default function Admin() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-semibold text-sm">{item.title}</span>
-                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 shrink-0">{typeLabel[item.taskType] ?? item.taskType}</Badge>
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 shrink-0">{typeLabel[item.type] ?? item.type}</Badge>
                         {!item.isActive && <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 border-red-500/40 text-red-400 shrink-0">Hidden</Badge>}
-                        {item.autoGenerated && <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 border-blue-500/40 text-blue-400 shrink-0">Auto</Badge>}
+                        {item.isAutoGenerated && <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 border-blue-500/40 text-blue-400 shrink-0">Auto</Badge>}
                       </div>
                       <p className="text-xs text-muted-foreground truncate">{item.description || `Target: ${item.targetValue}`}</p>
                     </div>
                     <div className="flex items-center gap-3 shrink-0 text-xs text-muted-foreground">
-                      <span className="flex items-center gap-1"><Gem className="h-3 w-3 text-amber-400" />{item.rewardCoins}</span>
-                      <span className="flex items-center gap-1"><Zap className="h-3 w-3 text-violet-400" />{item.rewardXp} XP</span>
+                      <span className="flex items-center gap-1"><Gem className="h-3 w-3 text-amber-400" />{item.coinReward}</span>
+                      <span className="flex items-center gap-1"><Zap className="h-3 w-3 text-violet-400" />{item.xpReward} XP</span>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
                       <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground" onClick={() => toggleTaskActive(item)} title={item.isActive ? "Hide" : "Show"}>
                         {item.isActive ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
                       </Button>
-                      <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground" onClick={() => { setTaskForm({ title: item.title, description: item.description || "", taskType: item.taskType, targetValue: item.targetValue, rewardCoins: item.rewardCoins, rewardXp: item.rewardXp, categoryId: item.categoryId || "", isActive: item.isActive }); setTaskDialog({ mode: "edit", item }); }}>
+                      <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground" onClick={() => { setTaskForm({ title: item.title, description: item.description || "", type: item.type, targetValue: item.targetValue, coinReward: item.coinReward, xpReward: item.xpReward, categoryId: item.categoryId || "", isActive: item.isActive }); setTaskDialog({ mode: "edit", item }); }}>
                         <Pencil className="h-4 w-4" />
                       </Button>
                       <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-red-400 hover:text-red-300 hover:bg-red-500/10" onClick={() => deleteTaskItem(item.id)} disabled={taskDeletePending === item.id}>
@@ -1989,7 +2221,7 @@ export default function Admin() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label className="text-xs">Task Type *</Label>
-                <Select value={taskForm.taskType} onValueChange={v => setTaskForm(f => ({ ...f, taskType: v }))}>
+                <Select value={taskForm.type} onValueChange={v => setTaskForm(f => ({ ...f, type: v }))}>
                   <SelectTrigger className="bg-muted/30 border-border"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="quiz_count">Complete Quizzes</SelectItem>
@@ -2004,7 +2236,7 @@ export default function Admin() {
                 <Input type="number" min={1} value={taskForm.targetValue} onChange={e => setTaskForm(f => ({ ...f, targetValue: Number(e.target.value) }))} className="bg-muted/30 border-border" />
               </div>
             </div>
-            {(taskForm.taskType === "category_quiz") && (
+            {(taskForm.type === "category_quiz") && (
               <div className="space-y-1.5">
                 <Label className="text-xs">Category (optional)</Label>
                 <Select value={taskForm.categoryId || "_none"} onValueChange={v => setTaskForm(f => ({ ...f, categoryId: v === "_none" ? "" : v }))}>
@@ -2019,11 +2251,11 @@ export default function Admin() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label className="text-xs">Reward Coins</Label>
-                <Input type="number" min={0} value={taskForm.rewardCoins} onChange={e => setTaskForm(f => ({ ...f, rewardCoins: Number(e.target.value) }))} className="bg-muted/30 border-border" />
+                <Input type="number" min={0} value={taskForm.coinReward} onChange={e => setTaskForm(f => ({ ...f, coinReward: Number(e.target.value) }))} className="bg-muted/30 border-border" />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs">Reward XP</Label>
-                <Input type="number" min={0} value={taskForm.rewardXp} onChange={e => setTaskForm(f => ({ ...f, rewardXp: Number(e.target.value) }))} className="bg-muted/30 border-border" />
+                <Input type="number" min={0} value={taskForm.xpReward} onChange={e => setTaskForm(f => ({ ...f, xpReward: Number(e.target.value) }))} className="bg-muted/30 border-border" />
               </div>
             </div>
             <div className="flex items-center gap-3">
@@ -2039,7 +2271,7 @@ export default function Admin() {
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setTaskDialog(null)}>Cancel</Button>
-            <Button onClick={saveTaskItem} disabled={!taskForm.title || !taskForm.taskType || taskSaving} className="bg-primary text-primary-foreground">
+            <Button onClick={saveTaskItem} disabled={!taskForm.title || !taskForm.type || taskSaving} className="bg-primary text-primary-foreground">
               {taskSaving ? "Saving..." : taskDialog?.mode === "create" ? "Create Task" : "Save Changes"}
             </Button>
           </DialogFooter>
@@ -2406,6 +2638,114 @@ export default function Admin() {
               {qDialog?.mode === "create" ? "Create Question" : "Save Changes"}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Excel Import Dialog */}
+      <Dialog open={importDialogOpen} onOpenChange={(open) => !open && closeImportDialog()}>
+        <DialogContent className="sm:max-w-2xl border-border bg-card max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Import Questions from Excel</DialogTitle>
+          </DialogHeader>
+
+          {!importPreview ? (
+            <div className="space-y-4">
+              <button
+                type="button"
+                onClick={handleDownloadTemplate}
+                className="text-sm text-primary hover:underline flex items-center gap-1.5"
+              >
+                <Download className="h-4 w-4" /> Download the .xlsx template
+              </button>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs">Select file (.xlsx)</Label>
+                <Input
+                  type="file"
+                  accept=".xlsx"
+                  onChange={e => setImportFile(e.target.files?.[0] ?? null)}
+                  className="bg-muted/30 border-border"
+                />
+              </div>
+
+              <DialogFooter>
+                <Button variant="ghost" onClick={closeImportDialog}>Cancel</Button>
+                <Button onClick={handlePreviewImport} disabled={!importFile || importPreviewing} className="bg-primary text-primary-foreground">
+                  {importPreviewing ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Uploading...</> : "Upload & Preview"}
+                </Button>
+              </DialogFooter>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-xl border border-border bg-card/60 p-3">
+                  <p className="text-xs text-muted-foreground">Valid rows</p>
+                  <p className="text-2xl font-black text-green-400">{importPreview.validCount}</p>
+                </div>
+                <div className="rounded-xl border border-border bg-card/60 p-3">
+                  <p className="text-xs text-muted-foreground">Rows with errors</p>
+                  <p className="text-2xl font-black text-red-400">{importPreview.errors?.length ?? 0}</p>
+                </div>
+              </div>
+
+              {importPreview.newSubjects?.length > 0 && (
+                <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 space-y-1.5">
+                  <p className="text-xs font-semibold text-amber-400 flex items-center gap-1.5">
+                    <AlertTriangle className="h-3.5 w-3.5" /> New subjects will be created
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {importPreview.newSubjects.map((s: string) => (
+                      <Badge key={s} variant="outline">{s}</Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {importPreview.newSubcategories?.length > 0 && (
+                <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 space-y-1.5">
+                  <p className="text-xs font-semibold text-amber-400 flex items-center gap-1.5">
+                    <AlertTriangle className="h-3.5 w-3.5" /> New subcategories will be created
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {importPreview.newSubcategories.map((s: { subject: string; subcategory: string }) => (
+                      <Badge key={`${s.subject}-${s.subcategory}`} variant="outline">{s.subject} → {s.subcategory}</Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {importPreview.duplicateWarnings?.length > 0 && (
+                <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/5 p-3 space-y-1 max-h-32 overflow-y-auto">
+                  <p className="text-xs font-semibold text-yellow-400 mb-1">Possible duplicates (will still be imported)</p>
+                  {importPreview.duplicateWarnings.map((d: { row: number; question: string }) => (
+                    <p key={d.row} className="text-xs text-muted-foreground">Row {d.row}: "{d.question}"</p>
+                  ))}
+                </div>
+              )}
+
+              {importPreview.errors?.length > 0 && (
+                <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-3 space-y-1 max-h-40 overflow-y-auto">
+                  <p className="text-xs font-semibold text-red-400 mb-1">Rows that will be skipped</p>
+                  {importPreview.errors.map((e: { row: number; column?: string; message: string }, i: number) => (
+                    <p key={i} className="text-xs text-muted-foreground">
+                      Row {e.row}{e.column ? ` (${e.column})` : ""}: {e.message}
+                    </p>
+                  ))}
+                </div>
+              )}
+
+              <DialogFooter>
+                <Button variant="ghost" onClick={() => setImportPreview(null)}>Back</Button>
+                <Button
+                  onClick={handleCommitImport}
+                  disabled={importCommitting || importPreview.validCount === 0}
+                  className="bg-primary text-primary-foreground"
+                >
+                  {importCommitting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Importing...</> : `Confirm Import (${importPreview.validCount})`}
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

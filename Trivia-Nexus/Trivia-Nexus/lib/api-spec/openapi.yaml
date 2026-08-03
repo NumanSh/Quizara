@@ -845,14 +845,24 @@ components:
         createdAt:
           type: string
           format: date-time
+        activeAvatarFrame:
+          type: [string, 'null']
+        activeProfileBg:
+          type: [string, 'null']
+        activeUsernameColor:
+          type: [string, 'null']
 
     UpdateProfileBody:
       type: object
       properties:
         username:
           type: string
+          minLength: 3
+          maxLength: 20
+          pattern: '^[a-zA-Z0-9_]+$'
         country:
           type: string
+          maxLength: 100
         role:
           type: string
           enum: [player, admin]
@@ -1085,6 +1095,12 @@ components:
         answerData:
           type: string
           description: JSON-encoded answer for complex types (ordering, matching, hotspot)
+        doubleScore:
+          type: boolean
+          description: Apply double score powerup to this answer
+        doubleScoreItemId:
+          type: string
+          description: ID of the double score powerup item in inventory
 
     AnswerResult:
       type: object

@@ -8,13 +8,12 @@ import {
 } from "@workspace/db";
 import { eq, sql, and, inArray } from "drizzle-orm";
 import { awardBattlePassXp } from "./xpHelper";
+import { getRatesForMode } from "../lib/economyConfig";
 
 const router: IRouter = Router();
 
 const BLITZ_DURATION = 90;
 const BLITZ_QUESTION_COUNT = 30;
-const COINS_PER_CORRECT_BASE = 5;
-const POINTS_PER_CORRECT_BASE = 10;
 
 function getToday(): string {
   return new Date().toISOString().split("T")[0];
@@ -31,8 +30,28 @@ async function ensurePool(date: string, createdBy?: string): Promise<string[]> {
     .limit(BLITZ_QUESTION_COUNT);
 
   const questionIds = questions.map((q) => q.id);
-  await db.insert(blitzDailyPoolTable).values({ date, questionIds, createdBy: createdBy ?? null });
-  return questionIds;
+  try {
+    await db.insert(blitzDailyPoolTable).values({ date, questionIds, createdBy: createdBy ?? null }).onConflictDoNothing();
+  } catch (err) {
+    // Ignore duplicate insert errors from concurrent players starting at the same time
+  }
+  const pool = await db.select().from(blitzDailyPoolTable).where(eq(blitzDailyPoolTable.date, date)).limit(1);
+  return pool[0]?.questionIds ?? questionIds;
+}
+
+async function completeAttempt(attemptId: string, userId: string, correctCount: number) {
+  const [updated] = await db.update(userBlitzAttemptsTable)
+    .set({ status: "completed", completedAt: new Date() })
+    .where(and(
+      eq(userBlitzAttemptsTable.id, attemptId),
+      eq(userBlitzAttemptsTable.status, "in_progress")
+    ))
+    .returning();
+  if (updated) {
+    const rates = await getRatesForMode("blitz");
+    const xp = Math.max(correctCount * rates.xpPerCorrectOnComplete, rates.xpCompleteMinimum);
+    await awardBattlePassXp(userId, xp).catch(() => {});
+  }
 }
 
 async function fetchQuestions(questionIds: string[]) {
@@ -88,12 +107,13 @@ router.get("/blitz/today", async (req, res) => {
         } else {
           const elapsed = (Date.now() - attempt.startedAt.getTime()) / 1000;
           if (elapsed >= BLITZ_DURATION) {
-            await db.update(userBlitzAttemptsTable).set({ status: "completed", completedAt: new Date() }).where(eq(userBlitzAttemptsTable.id, attempt.id));
+            await completeAttempt(attempt.id, user.id, attempt.correctCount);
+            const [finalAttempt] = await db.select().from(userBlitzAttemptsTable).where(eq(userBlitzAttemptsTable.id, attempt.id)).limit(1);
             hasPlayed = true;
-            previousScore = attempt.score;
-            previousCorrect = attempt.correctCount;
-            coinsEarned = attempt.coinsEarned;
-            pointsEarned = attempt.pointsEarned;
+            previousScore = finalAttempt?.score ?? attempt.score;
+            previousCorrect = finalAttempt?.correctCount ?? attempt.correctCount;
+            coinsEarned = finalAttempt?.coinsEarned ?? attempt.coinsEarned;
+            pointsEarned = finalAttempt?.pointsEarned ?? attempt.pointsEarned;
           } else {
             inProgress = true;
             timeRemaining = Math.max(0, BLITZ_DURATION - Math.floor(elapsed));
@@ -132,7 +152,7 @@ router.post("/blitz/start", async (req, res) => {
       }
       const elapsed = (Date.now() - attempt.startedAt.getTime()) / 1000;
       if (elapsed >= BLITZ_DURATION) {
-        await db.update(userBlitzAttemptsTable).set({ status: "completed", completedAt: new Date() }).where(eq(userBlitzAttemptsTable.id, attempt.id));
+        await completeAttempt(attempt.id, user.id, attempt.correctCount);
         res.status(409).json({ error: "Session expired", attemptId: attempt.id });
         return;
       }
@@ -142,9 +162,36 @@ router.post("/blitz/start", async (req, res) => {
     }
 
     const questionIds = await ensurePool(today);
-    const [attempt] = await db.insert(userBlitzAttemptsTable).values({ userId: user.id, blitzDate: today, questionIds, status: "in_progress" }).returning();
-    const questions = await fetchQuestions(questionIds);
-    res.json({ attemptId: attempt.id, questions, answeredCount: 0, timeRemaining: BLITZ_DURATION });
+    try {
+      const [attempt] = await db.insert(userBlitzAttemptsTable).values({ userId: user.id, blitzDate: today, questionIds, status: "in_progress" }).returning();
+      const questions = await fetchQuestions(questionIds);
+      res.json({ attemptId: attempt.id, questions, answeredCount: 0, timeRemaining: BLITZ_DURATION });
+    } catch (insertErr: any) {
+      if (insertErr.code === "23505" || insertErr.message?.includes("uba_user_date_idx")) {
+        // Fetch existing attempt since it was created concurrently
+        const [existingAttempt] = await db
+          .select()
+          .from(userBlitzAttemptsTable)
+          .where(and(eq(userBlitzAttemptsTable.userId, user.id), eq(userBlitzAttemptsTable.blitzDate, today)))
+          .limit(1);
+        if (existingAttempt) {
+          if (existingAttempt.status === "completed") {
+            res.status(409).json({ error: "Already played today", attemptId: existingAttempt.id });
+            return;
+          }
+          const elapsed = (Date.now() - existingAttempt.startedAt.getTime()) / 1000;
+          if (elapsed >= BLITZ_DURATION) {
+            await completeAttempt(existingAttempt.id, user.id, existingAttempt.correctCount);
+            res.status(409).json({ error: "Session expired", attemptId: existingAttempt.id });
+            return;
+          }
+          const questions = await fetchQuestions(existingAttempt.questionIds);
+          res.json({ attemptId: existingAttempt.id, questions, answeredCount: existingAttempt.answeredCount, timeRemaining: Math.max(0, BLITZ_DURATION - Math.floor(elapsed)) });
+          return;
+        }
+      }
+      throw insertErr;
+    }
   } catch (err) {
     req.log.error({ err }, "Failed to start blitz");
     res.status(500).json({ error: "Internal server error" });
@@ -172,8 +219,22 @@ router.post("/blitz/:attemptId/answer", async (req, res) => {
 
     const elapsed = (Date.now() - attempt.startedAt.getTime()) / 1000;
     if (elapsed > BLITZ_DURATION + 5) {
-      await db.update(userBlitzAttemptsTable).set({ status: "completed", completedAt: new Date() }).where(eq(userBlitzAttemptsTable.id, attemptId));
+      await completeAttempt(attemptId, user.id, attempt.correctCount);
       res.status(409).json({ error: "Time expired" });
+      return;
+    }
+
+    const questionIds = attempt.questionIds as string[];
+    const answeredCount = attempt.answeredCount;
+
+    if (answeredCount >= questionIds.length) {
+      res.status(400).json({ error: "All questions have already been answered" });
+      return;
+    }
+
+    const expectedQuestionId = questionIds[answeredCount];
+    if (questionId !== expectedQuestionId) {
+      res.status(400).json({ error: "Invalid question ID for the current question index" });
       return;
     }
 
@@ -182,22 +243,42 @@ router.post("/blitz/:attemptId/answer", async (req, res) => {
 
     const isCorrect = selectedAnswer === question.correctAnswer;
     const diff = question.difficulty ?? 1;
-    const coinsThisAnswer = isCorrect ? diff * COINS_PER_CORRECT_BASE : 0;
-    const pointsThisAnswer = isCorrect ? diff * POINTS_PER_CORRECT_BASE : 0;
+    const rates = await getRatesForMode("blitz");
+    const coinsThisAnswer = isCorrect ? diff * rates.coinsPerCorrectBase : 0;
+    const pointsThisAnswer = isCorrect ? diff * rates.scorePerCorrectBase : 0;
 
-    await db.update(userBlitzAttemptsTable).set({
-      answeredCount: sql`${userBlitzAttemptsTable.answeredCount} + 1`,
-      correctCount: sql`${userBlitzAttemptsTable.correctCount} + ${isCorrect ? 1 : 0}`,
-      score: sql`${userBlitzAttemptsTable.score} + ${pointsThisAnswer}`,
-      coinsEarned: sql`${userBlitzAttemptsTable.coinsEarned} + ${coinsThisAnswer}`,
-      pointsEarned: sql`${userBlitzAttemptsTable.pointsEarned} + ${pointsThisAnswer}`,
-    }).where(eq(userBlitzAttemptsTable.id, attemptId));
+    let transactionFailed = false;
+    await db.transaction(async (tx) => {
+      const [updatedAttempt] = await tx.update(userBlitzAttemptsTable).set({
+        answeredCount: sql`${userBlitzAttemptsTable.answeredCount} + 1`,
+        correctCount: sql`${userBlitzAttemptsTable.correctCount} + ${isCorrect ? 1 : 0}`,
+        score: sql`${userBlitzAttemptsTable.score} + ${pointsThisAnswer}`,
+        coinsEarned: sql`${userBlitzAttemptsTable.coinsEarned} + ${coinsThisAnswer}`,
+        pointsEarned: sql`${userBlitzAttemptsTable.pointsEarned} + ${pointsThisAnswer}`,
+      }).where(and(
+        eq(userBlitzAttemptsTable.id, attemptId),
+        eq(userBlitzAttemptsTable.answeredCount, answeredCount)
+      )).returning();
 
-    if (coinsThisAnswer > 0 || pointsThisAnswer > 0) {
-      await db.update(profilesTable).set({
-        coins: sql`${profilesTable.coins} + ${coinsThisAnswer}`,
-        totalScore: sql`${profilesTable.totalScore} + ${pointsThisAnswer}`,
-      }).where(eq(profilesTable.userId, user.id));
+      if (!updatedAttempt) {
+        transactionFailed = true;
+        tx.rollback();
+        return;
+      }
+
+      if (coinsThisAnswer > 0 || pointsThisAnswer > 0) {
+        await tx.update(profilesTable).set({
+          coins: sql`${profilesTable.coins} + ${coinsThisAnswer}`,
+          totalScore: sql`${profilesTable.totalScore} + ${pointsThisAnswer}`,
+        }).where(eq(profilesTable.userId, user.id));
+      }
+    }).catch(err => {
+      if (!transactionFailed) throw err;
+    });
+
+    if (transactionFailed) {
+      res.status(409).json({ error: "Answer already submitted or session modified" });
+      return;
     }
 
     res.json({ isCorrect, correctAnswer: question.correctAnswer, coinsEarned: coinsThisAnswer, pointsEarned: pointsThisAnswer });
@@ -220,8 +301,7 @@ router.post("/blitz/:attemptId/complete", async (req, res) => {
     if (!attempt) { res.status(404).json({ error: "Attempt not found" }); return; }
 
     if (attempt.status !== "completed") {
-      await db.update(userBlitzAttemptsTable).set({ status: "completed", completedAt: new Date() }).where(eq(userBlitzAttemptsTable.id, attemptId));
-      await awardBattlePassXp(user.id, Math.max(attempt.correctCount * 5, 10));
+      await completeAttempt(attemptId, user.id, attempt.correctCount);
     }
 
     res.json({ score: attempt.score, correctCount: attempt.correctCount, answeredCount: attempt.answeredCount, coinsEarned: attempt.coinsEarned, pointsEarned: attempt.pointsEarned });
@@ -234,6 +314,7 @@ router.post("/blitz/:attemptId/complete", async (req, res) => {
 router.post("/admin/blitz/setup", async (req, res) => {
   try {
     if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+    if (req.user.role !== "admin") { res.status(403).json({ error: "Forbidden: Admin role required" }); return; }
     const { date, questionCount, questionIds } = req.body as { date?: string; questionCount?: number; questionIds?: string[] };
     const user = (req as any).user;
     const targetDate = date ?? getToday();
@@ -261,6 +342,7 @@ router.post("/admin/blitz/setup", async (req, res) => {
 router.get("/admin/blitz/status", async (req, res) => {
   try {
     if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+    if (req.user.role !== "admin") { res.status(403).json({ error: "Forbidden: Admin role required" }); return; }
     const today = getToday();
     const pool = await db.select().from(blitzDailyPoolTable).where(eq(blitzDailyPoolTable.date, today)).limit(1);
     const [attemptCount] = await db.select({ count: sql<number>`count(*)` }).from(userBlitzAttemptsTable).where(eq(userBlitzAttemptsTable.blitzDate, today));

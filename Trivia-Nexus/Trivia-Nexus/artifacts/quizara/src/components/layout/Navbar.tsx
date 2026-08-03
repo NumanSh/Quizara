@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { useAuth } from "@workspace/replit-auth-web";
+import { useSupabaseAuth } from "@/hooks/useSupabaseAuth";
 import { Button } from "@/components/ui/button";
 import { Trophy, User, LogOut, Settings } from "lucide-react";
 import { useGetProfile, getGetProfileQueryKey } from "@workspace/api-client-react";
@@ -10,11 +10,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export function Navbar() {
-  const { user, isAuthenticated, login, logout } = useAuth();
-  
-  const { data: profile } = useGetProfile({
+  const { user, isAuthenticated, login, logout } = useSupabaseAuth();
+
+  const { data: profile, isLoading } = useGetProfile({
     query: {
       queryKey: getGetProfileQueryKey(),
       enabled: isAuthenticated,
@@ -40,48 +41,56 @@ export function Navbar() {
             </Link>
           </nav>
         </div>
-        
+
         <div className="flex items-center gap-4">
           {isAuthenticated ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="relative h-8 w-8 rounded-full border border-border">
-                  <User className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-56" align="end" forceMount>
-                <div className="flex items-center justify-start gap-2 p-2">
-                  <div className="flex flex-col space-y-1 leading-none">
-                    {profile?.username && <p className="font-medium">{profile.username}</p>}
-                    {profile?.totalScore !== undefined && (
-                      <p className="w-[200px] truncate text-sm text-muted-foreground">
-                        Score: {profile.totalScore}
-                      </p>
+            isLoading || !profile ? (
+              <Skeleton className="h-10 w-10 rounded-full" />
+            ) : (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" className="relative h-10 w-10 rounded-full border border-border p-0 overflow-hidden">
+                    {profile?.profileImageUrl ? (
+                      <img src={profile.profileImageUrl} alt={profile.username || "User"} className="h-full w-full object-cover" />
+                    ) : (
+                      <User className="h-4 w-4" />
                     )}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="w-56" align="end" forceMount>
+                  <div className="flex items-center justify-start gap-2 p-2">
+                    <div className="flex flex-col space-y-1 leading-none">
+                      {profile?.username && <p className="font-medium">{profile.username}</p>}
+                      {profile?.totalScore !== undefined && (
+                        <p className="w-[200px] truncate text-sm text-muted-foreground">
+                          Score: {profile.totalScore}
+                        </p>
+                      )}
+                    </div>
                   </div>
-                </div>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem asChild>
-                  <Link href="/profile" className="w-full flex items-center cursor-pointer">
-                    <User className="mr-2 h-4 w-4" />
-                    <span>Profile</span>
-                  </Link>
-                </DropdownMenuItem>
-                {profile?.role === 'admin' && (
+                  <DropdownMenuSeparator />
                   <DropdownMenuItem asChild>
-                    <Link href="/admin" className="w-full flex items-center cursor-pointer">
-                      <Settings className="mr-2 h-4 w-4" />
-                      <span>Admin</span>
+                    <Link href="/profile" className="w-full flex items-center cursor-pointer">
+                      <User className="mr-2 h-4 w-4" />
+                      <span>Profile</span>
                     </Link>
                   </DropdownMenuItem>
-                )}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => logout()} className="cursor-pointer text-destructive focus:text-destructive">
-                  <LogOut className="mr-2 h-4 w-4" />
-                  <span>Log out</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                  {profile?.role === 'admin' && (
+                    <DropdownMenuItem asChild>
+                      <Link href="/admin" className="w-full flex items-center cursor-pointer">
+                        <Settings className="mr-2 h-4 w-4" />
+                        <span>Admin</span>
+                      </Link>
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => logout()} className="cursor-pointer text-destructive focus:text-destructive">
+                    <LogOut className="mr-2 h-4 w-4" />
+                    <span>Log out</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )
           ) : (
             <Button onClick={() => login()} variant="default" className="bg-primary text-primary-foreground hover:bg-primary/90">
               Sign In

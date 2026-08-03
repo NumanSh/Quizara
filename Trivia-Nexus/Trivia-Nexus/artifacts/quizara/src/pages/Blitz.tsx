@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
-import { useAuth } from "@workspace/replit-auth-web";
+import { useSupabaseAuth } from "@/hooks/useSupabaseAuth";
 import { Zap, Clock, CheckCircle2, XCircle, Gem, Trophy, Star, Flame, RotateCcw, Calendar } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import PowerUpBar, { type PowerUpItem } from "@/components/PowerUpBar";
 import PreGamePowerUpModal from "@/components/PreGamePowerUpModal";
+import { authFetch } from "@/lib/api";
 
 const BLITZ_DURATION = 90;
 
@@ -60,7 +61,7 @@ function DifficultyPip({ difficulty }: { difficulty: number }) {
 }
 
 export default function Blitz() {
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, user } = useSupabaseAuth();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
 
@@ -103,7 +104,7 @@ export default function Blitz() {
     stopTimer();
     setState("completed");
     try {
-      await fetch(`/api/blitz/${aId}/complete`, {
+      await authFetch(`/api/blitz/${aId}/complete`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -139,7 +140,7 @@ export default function Blitz() {
   async function fetchInventory() {
     if (!isAuthenticated) return;
     try {
-      const res = await fetch("/api/marketplace/inventory", { credentials: "include" });
+      const res = await authFetch("/api/marketplace/inventory", { credentials: "include" });
       const data = await res.json();
       const pus = (Array.isArray(data) ? data : []).filter(
         (i: any) => i.type === "powerup" && i.quantity > 0 &&
@@ -153,7 +154,7 @@ export default function Blitz() {
 
   async function fetchToday() {
     try {
-      const res = await fetch("/api/blitz/today", { credentials: "include" });
+      const res = await authFetch("/api/blitz/today", { credentials: "include" });
       const data = await res.json();
       setTodayInfo(data);
       if (data.inProgress && data.attemptId) {
@@ -170,7 +171,7 @@ export default function Blitz() {
 
     if (effect === "fifty_fifty") {
       try {
-        const res = await fetch("/api/powerups/fifty-fifty", {
+        const res = await authFetch("/api/powerups/fifty-fifty", {
           method: "POST", credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ questionId: q.id, itemId }),
@@ -189,7 +190,7 @@ export default function Blitz() {
 
     // Consume item for other power-ups
     try {
-      const res = await fetch("/api/marketplace/use-item", {
+      const res = await authFetch("/api/marketplace/use-item", {
         method: "POST", credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ itemId }),
@@ -242,7 +243,7 @@ export default function Blitz() {
     setState("loading");
     completedRef.current = false;
     try {
-      const res = await fetch("/api/blitz/start", {
+      const res = await authFetch("/api/blitz/start", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -285,7 +286,7 @@ export default function Blitz() {
     setIsSubmitting(true);
 
     try {
-      const res = await fetch(`/api/blitz/${attemptId}/answer`, {
+      const res = await authFetch(`/api/blitz/${attemptId}/answer`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -417,6 +418,7 @@ export default function Blitz() {
               onUse={handleBlitzPowerUp}
               disabled={feedback !== null || isSubmitting}
               allowedEffects={["fifty_fifty", "extra_time", "skip_question", "double_score"]}
+              currentQuestionType={q.questionType}
             />
           </div>
         )}

@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, useLocation } from "wouter";
-import { useAuth } from "@workspace/replit-auth-web";
+import { useSupabaseAuth } from "@/hooks/useSupabaseAuth";
 import { ArrowLeft, Lock, Trophy, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useHearts } from "@/hooks/useHearts";
 import { HeartsDisplay } from "@/components/HeartsDisplay";
+import { authFetch } from "@/lib/api";
 
 const CATEGORY_BG_IMAGES: Record<string, string> = {
   "anime":           "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=1200&q=80",
@@ -116,7 +117,7 @@ function StarRow({ filled }: { filled: boolean }) {
 export default function WorldMap() {
   const { categoryId } = useParams();
   const [, setLocation] = useLocation();
-  const { user } = useAuth();
+  const { user } = useSupabaseAuth();
 
   const [worldData, setWorldData] = useState<WorldData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -144,7 +145,7 @@ export default function WorldMap() {
     if (!categoryId) return;
     setLoading(true);
     setError(null);
-    fetch(`/api/quiz/worlds/${categoryId}`, { credentials: "include" })
+    authFetch(`/api/quiz/worlds/${categoryId}`, { credentials: "include" })
       .then(r => r.json())
       .then((data: WorldData & { error?: string }) => {
         if (data.error) { setError(data.error); return; }
@@ -186,7 +187,7 @@ export default function WorldMap() {
     if (starting !== null) return;
     setStarting(level.levelNumber);
     try {
-      const res = await fetch("/api/quiz/levels/start", {
+      const res = await authFetch("/api/quiz/levels/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",

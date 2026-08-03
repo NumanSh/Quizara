@@ -194,6 +194,19 @@ router.post("/challenges/:code/scores", async (req, res): Promise<void> => {
     }
 
     const userId = req.isAuthenticated() ? req.user.id : null;
+
+    if (session.userId && session.userId !== userId) {
+      res.status(403).json({ error: "Unauthorized access to this session's score" });
+      return;
+    }
+
+    const challengeQs = challenge.questionIds as string[];
+    const sessionQs = session.questionIds as string[];
+
+    if (JSON.stringify(challengeQs) !== JSON.stringify(sessionQs)) {
+      res.status(400).json({ error: "Quiz session does not match the challenge questions" });
+      return;
+    }
     const playerName = rawName?.trim() ||
       (req.isAuthenticated()
         ? (req.user.firstName ? `${req.user.firstName}${req.user.lastName ? " " + req.user.lastName : ""}`.trim() : (req.user.email?.split("@")[0] ?? "Anonymous"))
@@ -213,16 +226,24 @@ router.post("/challenges/:code/scores", async (req, res): Promise<void> => {
     if (existing.length > 0) {
       // Already submitted — return current leaderboard
     } else {
-      await db.insert(challengeScoresTable).values({
-        challengeId: code,
-        sessionId,
-        userId,
-        playerName,
-        score: session.score,
-        correctAnswers: session.correctAnswers,
-        totalQuestions: session.totalQuestions,
-        timeTaken,
-      });
+      try {
+        await db.insert(challengeScoresTable).values({
+          challengeId: code,
+          sessionId,
+          userId,
+          playerName,
+          score: session.score,
+          correctAnswers: session.correctAnswers,
+          totalQuestions: session.totalQuestions,
+          timeTaken,
+        });
+      } catch (insertErr: any) {
+        if (insertErr.code === "23505") {
+          req.log.warn({ sessionId }, "Duplicate challenge score submission caught by DB constraint");
+        } else {
+          throw insertErr;
+        }
+      }
     }
 
     // Return updated leaderboard

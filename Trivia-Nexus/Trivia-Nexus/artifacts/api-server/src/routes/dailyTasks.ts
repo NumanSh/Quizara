@@ -20,6 +20,10 @@ function requireAdmin(req: any, res: any): boolean {
     res.status(401).json({ error: "Unauthorized" });
     return false;
   }
+  if (req.user.role !== "admin") {
+    res.status(403).json({ error: "Forbidden: Admin role required" });
+    return false;
+  }
   return true;
 }
 
@@ -130,10 +134,19 @@ router.post("/daily-tasks/:id/claim", async (req, res): Promise<void> => {
       return;
     }
 
-    await db
+    const [updatedProgress] = await db
       .update(userDailyTaskProgressTable)
       .set({ isClaimed: true, claimedAt: new Date() })
-      .where(eq(userDailyTaskProgressTable.id, progress.id));
+      .where(and(
+        eq(userDailyTaskProgressTable.id, progress.id),
+        eq(userDailyTaskProgressTable.isClaimed, false)
+      ))
+      .returning();
+
+    if (!updatedProgress) {
+      res.status(409).json({ error: "Reward already claimed or session modified" });
+      return;
+    }
 
     const [profile] = await db
       .select()

@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useLocation } from "wouter";
-import { useAuth } from "@workspace/replit-auth-web";
+import { useSupabaseAuth } from "@/hooks/useSupabaseAuth";
+import { supabase } from "@/lib/supabase";
+import { authFetch } from "@/lib/api";
 import { useGetProfile, getGetProfileQueryKey } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -101,7 +103,7 @@ function freshAnswerState(): AnswerState {
 }
 
 export default function Arena() {
-  const { isAuthenticated, login } = useAuth();
+  const { isAuthenticated, login } = useSupabaseAuth();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
 
@@ -129,6 +131,7 @@ export default function Arena() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedCats, setSelectedCats] = useState<string[]>([]);
   const [categoriesProgress, setCategoriesProgress] = useState({ selected: 0, total: 1 });
+  const [categoryPicks, setCategoryPicks] = useState<Record<string, string[]>>({});
 
   // Game state
   const [questions, setQuestions] = useState<ArenaQuestion[]>([]);
@@ -178,12 +181,12 @@ export default function Arena() {
 
     ws.onopen = () => {
       setConnected(true);
-      ws.send(JSON.stringify({
-        type: "INIT",
-        userId: profile.id,
-        username: profile.username || profile.firstName || profile.email || "Player",
-        profileImageUrl: profile.profileImageUrl ?? null,
-      }));
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        ws.send(JSON.stringify({
+          type: "INIT",
+          token: session?.access_token ?? null,
+        }));
+      });
     };
     ws.onclose = () => setConnected(false);
     ws.onerror = () => setConnected(false);
@@ -225,14 +228,19 @@ export default function Arena() {
           break;
         }
 
-        case "CATEGORY_SELECTION":
+        case "CATEGORY_SELECTION": {
+          const roomOpponents: PlayerInfo[] = (msg.opponents ?? []).filter((p: PlayerInfo) => p.userId !== profile?.id);
+          setOpponents(roomOpponents);
           setCategories(msg.categories ?? []);
-          setCategoriesProgress({ selected: 0, total: (msg.opponents?.length ?? 1) + 1 });
+          setCategoriesProgress({ selected: 0, total: (msg.opponents?.length ?? 1) });
+          setCategoryPicks({});
           setPhase("category_selection");
           break;
+        }
 
         case "CATEGORIES_PROGRESS":
           setCategoriesProgress({ selected: msg.selected, total: msg.total });
+          setCategoryPicks(msg.picks ?? {});
           break;
 
         case "GAME_START": {
@@ -242,7 +250,7 @@ export default function Arena() {
           setPhase("game");
           // Fetch inventory and show pre-game modal
           if (profile?.id) {
-            fetch("/api/marketplace/inventory", { credentials: "include" })
+            authFetch("/api/marketplace/inventory")
               .then(r => r.json())
               .then(data => {
                 const pus = (Array.isArray(data) ? data : []).filter(
@@ -805,14 +813,33 @@ export default function Arena() {
           </div>
 
           {opponents.length > 0 && (
-            <div className="rounded-xl border border-border bg-card/60 p-3 flex items-center gap-2 flex-wrap">
-              <span className="text-xs text-muted-foreground">vs</span>
-              {opponents.map(o => (
-                <div key={o.userId} className="flex items-center gap-1.5">
-                  <Avatar username={o.username} imageUrl={o.profileImageUrl} size="sm" />
-                  <span className="text-xs font-semibold">{o.username}</span>
-                </div>
-              ))}
+            <div className="rounded-xl border border-border bg-card/60 p-3 space-y-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs text-muted-foreground">vs</span>
+                {opponents.map(o => (
+                  <div key={o.userId} className="flex items-center gap-1.5">
+                    <Avatar username={o.username} imageUrl={o.profileImageUrl} size="sm" />
+                    <span className="text-xs font-semibold">{o.username}</span>
+                  </div>
+                ))}
+              </div>
+              {opponents.map(o => {
+                const picks = categoryPicks[o.userId];
+                if (!picks) return null;
+                return (
+                  <div key={`picks-${o.userId}`} className="flex items-center gap-2 flex-wrap text-xs">
+                    <span className="text-muted-foreground shrink-0">{o.username} picked:</span>
+                    {picks.map(catId => {
+                      const cat = categories.find(c => c.id === catId);
+                      return (
+                        <span key={catId} className="px-2 py-0.5 rounded-full bg-muted/40 border border-border text-foreground">
+                          {cat?.icon ?? "📚"} {cat?.name ?? "Unknown"}
+                        </span>
+                      );
+                    })}
+                  </div>
+                );
+              })}
             </div>
           )}
 
@@ -964,6 +991,7 @@ export default function Arena() {
               onUse={handleArenaPowerUp}
               disabled={answerState.submitted || answerState.revealed}
               allowedEffects={["fifty_fifty", "shield", "steal_question", "double_score"]}
+              currentQuestionType={q.questionType}
             />
           )}
 

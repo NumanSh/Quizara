@@ -17,6 +17,7 @@ export interface EarnedBadge {
 }
 
 export async function checkAndAwardBadges(userId: string, ctx: BadgeCheckContext): Promise<EarnedBadge[]> {
+  if (userId.startsWith("guest_")) return [];
   const newBadges: EarnedBadge[] = [];
   try {
     const allBadges = await db.select().from(badgesTable).where(eq(badgesTable.isActive, true));
@@ -81,7 +82,7 @@ export async function checkAndAwardBadges(userId: string, ctx: BadgeCheckContext
         userId,
         badgeId: badge.id,
         coinsClaimed: badge.coinReward === 0,
-      });
+      }).onConflictDoNothing();
       newBadges.push({ name: badge.name, icon: badge.icon, coinReward: badge.coinReward });
     }
   } catch (err) {

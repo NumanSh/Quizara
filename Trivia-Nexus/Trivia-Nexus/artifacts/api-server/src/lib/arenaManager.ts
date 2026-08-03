@@ -1,9 +1,12 @@
 import { type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
-import { db, questionsTable, categoriesTable, arenaStatsTable, userInventoryTable, marketplaceItemsTable } from "@workspace/db";
+import { db, questionsTable, categoriesTable, arenaStatsTable, userInventoryTable, marketplaceItemsTable, profilesTable, usersTable } from "@workspace/db";
 import { eq, sql, and } from "drizzle-orm";
 import { logger } from "./logger";
 import { checkAndAwardBadges } from "../routes/badgeChecker";
+import { supabase } from "./supabase";
+import { getRatesForMode } from "./economyConfig";
+import { awardBattlePassXp } from "../routes/xpHelper";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -40,7 +43,7 @@ export interface ArenaRoom {
   id: string;
   code?: string;
   players: ArenaPlayer[];
-  phase: "lobby" | "category_selection" | "game" | "ended";
+  phase: "lobby" | "category_selection" | "game_loading" | "game" | "ended";
   categoriesSelected: Map<string, string[]>;
   questions: ArenaQuestion[];
   scores: Map<string, number>;
@@ -52,8 +55,10 @@ export interface ArenaRoom {
   questionStartTime: number;
   questionAnswers: Map<string, QuestionAnswer | null>;
   questionTimer: ReturnType<typeof setTimeout> | null;
+  questionActive: boolean;
   // Power-up state
   shields: Map<string, boolean>;
+  stolenFrom: Set<string>;
 }
 
 // ─── In-memory state ──────────────────────────────────────────────────────────
@@ -62,6 +67,7 @@ const queue: ArenaPlayer[] = [];
 const rooms = new Map<string, ArenaRoom>();
 const friendRoomsByCode = new Map<string, string>();
 const playerToRoom = new Map<string, string>();
+const activePlayers = new Map<string, ArenaPlayer>();
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -148,7 +154,9 @@ function createMatchmadeRoom(p1: ArenaPlayer, p2: ArenaPlayer) {
     questionStartTime: 0,
     questionAnswers: new Map(),
     questionTimer: null,
+    questionActive: false,
     shields: new Map(),
+    stolenFrom: new Set(),
   };
   rooms.set(roomId, room);
   playerToRoom.set(p1.userId, roomId);
@@ -187,7 +195,9 @@ function createFriendsRoom(creator: ArenaPlayer, questionCount: number): ArenaRo
     questionStartTime: 0,
     questionAnswers: new Map(),
     questionTimer: null,
+    questionActive: false,
     shields: new Map(),
+    stolenFrom: new Set(),
   };
   rooms.set(roomId, room);
   friendRoomsByCode.set(code, roomId);
@@ -229,6 +239,8 @@ async function startCategorySelection(room: ArenaRoom) {
       parentId: categoriesTable.parentId,
     }).from(categoriesTable);
 
+    if (!rooms.has(room.id)) return;
+
     sendAll(room, {
       type: "CATEGORY_SELECTION",
       categories: cats,
@@ -242,7 +254,9 @@ async function startCategorySelection(room: ArenaRoom) {
     });
   } catch (err) {
     logger.error({ err }, "Failed to fetch categories for arena");
-    sendAll(room, { type: "ERROR", message: "Failed to load categories" });
+    if (rooms.has(room.id)) {
+      sendAll(room, { type: "ERROR", message: "Failed to load categories" });
+    }
   }
 }
 
@@ -258,6 +272,7 @@ async function startGame(room: ArenaRoom) {
 
   for (const catId of categoryIds) {
     const qs = await db.select().from(questionsTable).where(eq(questionsTable.categoryId, catId)).limit(perCat + 5);
+    if (!rooms.has(room.id)) return;
     const shuffled = qs.sort(() => Math.random() - 0.5).slice(0, perCat);
     shuffled.forEach(q => {
       questionsPool.push(shuffleQuestion({
@@ -271,6 +286,7 @@ async function startGame(room: ArenaRoom) {
     });
   }
 
+  if (!rooms.has(room.id)) return;
   const questions = questionsPool.sort(() => Math.random() - 0.5).slice(0, room.questionCount);
   room.questions = questions;
   room.phase = "game";
@@ -301,6 +317,8 @@ function sendQuestion(room: ArenaRoom, questionIndex: number) {
   room.currentQuestionIndex = questionIndex;
   room.questionStartTime = Date.now();
   room.questionAnswers = new Map(room.players.map(p => [p.userId, null]));
+  room.questionActive = true;
+  room.stolenFrom.clear();
 
   sendAll(room, { type: "QUESTION_START", questionIndex });
 
@@ -312,6 +330,7 @@ function sendQuestion(room: ArenaRoom, questionIndex: number) {
 function resolveQuestion(room: ArenaRoom) {
   if (room.phase !== "game") return;
   if (room.questionTimer) { clearTimeout(room.questionTimer); room.questionTimer = null; }
+  room.questionActive = false;
 
   const qi = room.currentQuestionIndex;
   const q = room.questions[qi];
@@ -336,6 +355,7 @@ function resolveQuestion(room: ArenaRoom) {
 
   // Advance to next question after display delay
   setTimeout(() => {
+    if (!rooms.has(room.id)) return;
     const nextIndex = qi + 1;
     if (nextIndex >= room.questions.length) {
       endGame(room);
@@ -376,6 +396,7 @@ function scoreAnswer(q: ArenaQuestion, selected?: number, answerData?: string): 
 
 function handleAnswer(room: ArenaRoom, player: ArenaPlayer, questionIndex: number, selected?: number, answerData?: string) {
   if (room.phase !== "game") return;
+  if (!room.questionActive) return;
   if (questionIndex !== room.currentQuestionIndex) return; // stale answer, ignore
   if (room.questionAnswers.get(player.userId) !== null) return; // already answered
 
@@ -440,7 +461,7 @@ function endGame(room: ArenaRoom) {
     const [p1, p2] = room.players as [ArenaPlayer, ArenaPlayer];
     const s1 = room.scores.get(p1.userId) ?? 0;
     const s2 = room.scores.get(p2.userId) ?? 0;
-    persistGameResult(p1.userId, p2.userId, s1, s2, winner).catch(err =>
+    persistGameResult(p1.userId, p2.userId, s1, s2, winner, room.isFriendsRoom).catch(err =>
       logger.error({ err }, "Failed to persist arena game result"),
     );
   } else {
@@ -460,10 +481,12 @@ async function persistGameResult(
   userId1: string, userId2: string,
   score1: number, score2: number,
   winner: string | null,
+  isFriendsRoom: boolean,
 ) {
   const isDraw = winner === null;
-  const upsert = async (userId: string, score: number, isWinner: boolean) =>
-    db.insert(arenaStatsTable).values({
+  const upsert = async (userId: string, score: number, isWinner: boolean) => {
+    if (userId.startsWith("guest_")) return;
+    return db.insert(arenaStatsTable).values({
       userId, wins: isWinner ? 1 : 0,
       losses: !isWinner && !isDraw ? 1 : 0,
       draws: isDraw ? 1 : 0,
@@ -478,9 +501,37 @@ async function persistGameResult(
         totalScore: sql`${arenaStatsTable.totalScore} + ${score}`,
       },
     });
+  };
   await Promise.all([upsert(userId1, score1, winner === userId1), upsert(userId2, score2, winner === userId2)]);
+
+  // Coins/score/XP economy applies only to random-matchmaking games — friends-room
+  // matches (any size, including a friend-created 1v1) are coin-neutral by design.
+  if (!isFriendsRoom && !isDraw && winner) {
+    const loserId = winner === userId1 ? userId2 : userId1;
+    const rates = await getRatesForMode("arena");
+    const promises: Promise<unknown>[] = [];
+
+    if (!winner.startsWith("guest_")) {
+      promises.push(
+        db.update(profilesTable).set({
+          coins: sql`${profilesTable.coins} + ${rates.coinsPerWin}`,
+          totalScore: sql`${profilesTable.totalScore} + ${rates.scorePerWin}`,
+        }).where(eq(profilesTable.userId, winner)),
+      );
+      promises.push(awardBattlePassXp(winner, rates.xpPerWin).catch(() => {}));
+    }
+    if (!loserId.startsWith("guest_")) {
+      promises.push(
+        db.update(profilesTable).set({
+          coins: sql`GREATEST(0, ${profilesTable.coins} - ${rates.coinsLostPerLoss})`,
+        }).where(eq(profilesTable.userId, loserId)),
+      );
+    }
+    await Promise.all(promises);
+  }
+
   // Check arena badges after stats are persisted
-  if (winner) {
+  if (winner && !winner.startsWith("guest_")) {
     checkAndAwardBadges(winner, { arenaWin: true }).catch(() => {});
   }
 }
@@ -488,6 +539,7 @@ async function persistGameResult(
 async function persistMultiGameResult(room: ArenaRoom, winner: string | null) {
   const isDraw = winner === null;
   await Promise.all(room.players.map(p => {
+    if (p.userId.startsWith("guest_")) return Promise.resolve();
     const score = room.scores.get(p.userId) ?? 0;
     const isWinner = winner === p.userId;
     return db.insert(arenaStatsTable).values({
@@ -507,7 +559,7 @@ async function persistMultiGameResult(room: ArenaRoom, winner: string | null) {
     });
   }));
   // Check arena badges after stats are persisted
-  if (winner) {
+  if (winner && !winner.startsWith("guest_")) {
     checkAndAwardBadges(winner, { arenaWin: true }).catch(() => {});
   }
 }
@@ -521,6 +573,7 @@ function handleMessage(player: ArenaPlayer, raw: string) {
 
   if (type === "JOIN_QUEUE") {
     if (playerToRoom.has(player.userId)) return;
+    if (queue.some(p => p.userId === player.userId)) return;
     queue.push(player);
     send(player.ws, { type: "QUEUE_JOINED", position: queue.length });
     tryMatch();
@@ -576,9 +629,12 @@ function handleMessage(player: ArenaPlayer, raw: string) {
       type: "CATEGORIES_PROGRESS",
       selected: room.categoriesSelected.size,
       total: room.players.length,
+      // Only players who have confirmed their picks appear here
+      picks: Object.fromEntries(room.categoriesSelected),
     });
 
     if (room.categoriesSelected.size === room.players.length) {
+      room.phase = "game_loading";
       startGame(room).catch(err => {
         logger.error({ err }, "Failed to start arena game");
         sendAll(room, { type: "ERROR", message: "Failed to start game" });
@@ -610,25 +666,80 @@ async function consumeInventoryItem(userId: string, itemId: string): Promise<boo
   const [entry] = await db.select().from(userInventoryTable)
     .where(and(eq(userInventoryTable.userId, userId), eq(userInventoryTable.itemId, itemId)));
   if (!entry || entry.quantity < 1) return false;
+
   if (entry.quantity === 1) {
-    await db.delete(userInventoryTable).where(eq(userInventoryTable.id, entry.id));
+    const [deleted] = await db.delete(userInventoryTable)
+      .where(and(
+        eq(userInventoryTable.id, entry.id),
+        eq(userInventoryTable.quantity, 1)
+      ))
+      .returning();
+    return !!deleted;
   } else {
-    await db.update(userInventoryTable).set({ quantity: entry.quantity - 1 }).where(eq(userInventoryTable.id, entry.id));
+    const [updated] = await db.update(userInventoryTable)
+      .set({ quantity: entry.quantity - 1 })
+      .where(and(
+        eq(userInventoryTable.id, entry.id),
+        eq(userInventoryTable.quantity, entry.quantity)
+      ))
+      .returning();
+    return !!updated;
   }
-  return true;
 }
 
 async function handlePowerUp(room: ArenaRoom, player: ArenaPlayer, msg: any) {
   const { effect, itemId, questionId, targetUserId } = msg;
 
+  // Verify the item database record
+  try {
+    const [item] = await db
+      .select()
+      .from(marketplaceItemsTable)
+      .where(eq(marketplaceItemsTable.id, itemId));
+
+    if (!rooms.has(room.id)) return;
+
+    if (!item) {
+      send(player.ws, { type: "ERROR", message: "Power-up item not found." });
+      return;
+    }
+
+    if (item.type !== "powerup") {
+      send(player.ws, { type: "ERROR", message: "Item is not a power-up." });
+      return;
+    }
+
+    if (item.effect !== effect) {
+      send(player.ws, { type: "ERROR", message: "Power-up effect mismatch." });
+      return;
+    }
+  } catch (err) {
+    logger.error({ err }, "Database error while validating power-up item");
+    if (rooms.has(room.id)) {
+      send(player.ws, { type: "ERROR", message: "Server error validating power-up." });
+    }
+    return;
+  }
+
   // fifty_fifty: return 2 wrong option indices for the current question
   if (effect === "fifty_fifty") {
-    const consumed = await consumeInventoryItem(player.userId, itemId);
-    if (!consumed) { send(player.ws, { type: "ERROR", message: "Power-up not in inventory" }); return; }
+    if (room.questionAnswers.get(player.userId) !== null) {
+      send(player.ws, { type: "ERROR", message: "You have already answered this question." });
+      return;
+    }
 
     // Find question by id in room questions
     const q = room.questions.find(q => q.id === questionId) ?? room.questions[room.currentQuestionIndex];
     if (!q) { send(player.ws, { type: "POWER_UP_RESULT", effect: "fifty_fifty", eliminatedOptions: [] }); return; }
+
+    if (q.questionType === "matching" || q.questionType === "ordering" || q.questionType === "hotspot") {
+      send(player.ws, { type: "ERROR", message: "This power-up isn't available for this question type." });
+      return;
+    }
+
+    const consumed = await consumeInventoryItem(player.userId, itemId);
+    if (!rooms.has(room.id)) return;
+    if (!consumed) { send(player.ws, { type: "ERROR", message: "Power-up not in inventory" }); return; }
 
     const wrongIndices = q.options.map((_, i) => i).filter(i => i !== q.correctAnswer);
     const shuffled = wrongIndices.sort(() => Math.random() - 0.5);
@@ -640,7 +751,12 @@ async function handlePowerUp(room: ArenaRoom, player: ArenaPlayer, msg: any) {
 
   // shield: protect this player from the next steal
   if (effect === "shield") {
+    if (room.shields.get(player.userId)) {
+      send(player.ws, { type: "ERROR", message: "Shield is already active." });
+      return;
+    }
     const consumed = await consumeInventoryItem(player.userId, itemId);
+    if (!rooms.has(room.id)) return;
     if (!consumed) { send(player.ws, { type: "ERROR", message: "Power-up not in inventory" }); return; }
 
     room.shields.set(player.userId, true);
@@ -650,11 +766,28 @@ async function handlePowerUp(room: ArenaRoom, player: ArenaPlayer, msg: any) {
 
   // steal_question: steal opponent's points for the current question
   if (effect === "steal_question") {
-    const consumed = await consumeInventoryItem(player.userId, itemId);
-    if (!consumed) { send(player.ws, { type: "ERROR", message: "Power-up not in inventory" }); return; }
+    if (targetUserId === player.userId) {
+      send(player.ws, { type: "ERROR", message: "You cannot steal from yourself." });
+      return;
+    }
+
+    if (room.stolenFrom.has(targetUserId)) {
+      send(player.ws, { type: "POWER_UP_RESULT", effect: "steal_question", success: false, reason: "already_stolen" });
+      return;
+    }
 
     const target = room.players.find(p => p.userId === targetUserId);
     if (!target) { send(player.ws, { type: "POWER_UP_RESULT", effect: "steal_question", success: false, reason: "Target not found" }); return; }
+
+    const targetAnswer = room.questionAnswers.get(target.userId);
+    if (targetAnswer === null || targetAnswer === undefined) {
+      send(player.ws, { type: "ERROR", message: "Target has not answered yet." });
+      return;
+    }
+
+    const consumed = await consumeInventoryItem(player.userId, itemId);
+    if (!rooms.has(room.id)) return;
+    if (!consumed) { send(player.ws, { type: "ERROR", message: "Power-up not in inventory" }); return; }
 
     // Check if target has shield
     if (room.shields.get(target.userId)) {
@@ -665,7 +798,6 @@ async function handlePowerUp(room: ArenaRoom, player: ArenaPlayer, msg: any) {
     }
 
     // Check if target answered correctly this question
-    const targetAnswer = room.questionAnswers.get(target.userId);
     if (!targetAnswer || !targetAnswer.correct || targetAnswer.points <= 0) {
       send(player.ws, { type: "POWER_UP_RESULT", effect: "steal_question", success: false, reason: "no_points" });
       return;
@@ -675,6 +807,7 @@ async function handlePowerUp(room: ArenaRoom, player: ArenaPlayer, msg: any) {
     const stolenPoints = targetAnswer.points;
     const newScore = (room.scores.get(player.userId) ?? 0) + stolenPoints;
     room.scores.set(player.userId, newScore);
+    room.stolenFrom.add(target.userId);
 
     send(player.ws, { type: "POWER_UP_RESULT", effect: "steal_question", success: true, pointsStolen: stolenPoints, targetUsername: target.username, newScore });
     send(target.ws, { type: "POWER_UP_RECEIVED", effect: "steal_question", fromUsername: player.username, pointsStolen: stolenPoints });
@@ -683,6 +816,11 @@ async function handlePowerUp(room: ArenaRoom, player: ArenaPlayer, msg: any) {
 }
 
 function handleDisconnect(player: ArenaPlayer) {
+  const currentActive = activePlayers.get(player.userId);
+  if (currentActive && currentActive.ws === player.ws) {
+    activePlayers.delete(player.userId);
+  }
+
   removeFromQueue(player.ws);
 
   const roomId = playerToRoom.get(player.userId);
@@ -701,11 +839,81 @@ function handleDisconnect(player: ArenaPlayer) {
       sendAll(room, lobbyPayload(room));
     }
   } else if (room.phase !== "ended") {
-    if (room.questionTimer) { clearTimeout(room.questionTimer); room.questionTimer = null; }
-    sendAllExcept(room, player.userId, { type: "OPPONENT_LEFT", userId: player.userId, username: player.username });
-    if (room.code) friendRoomsByCode.delete(room.code);
-    rooms.delete(roomId);
-    room.players.forEach(p => playerToRoom.delete(p.userId));
+    if (room.players.length <= 2) {
+      if (room.questionTimer) { clearTimeout(room.questionTimer); room.questionTimer = null; }
+      
+      // Rage-quit protection/forfeits: if in game phase, record results
+      if (room.phase === "game") {
+        const remainingPlayer = room.players.find(p => p.userId !== player.userId);
+        if (remainingPlayer) {
+          const s1 = room.scores.get(remainingPlayer.userId) ?? 0;
+          const s2 = room.scores.get(player.userId) ?? 0;
+          persistGameResult(remainingPlayer.userId, player.userId, s1, s2, remainingPlayer.userId, room.isFriendsRoom).catch(err =>
+            logger.error({ err }, "Failed to persist arena game result on disconnect")
+          );
+        }
+      }
+
+      sendAllExcept(room, player.userId, { type: "OPPONENT_LEFT", userId: player.userId, username: player.username });
+      if (room.code) friendRoomsByCode.delete(room.code);
+      rooms.delete(roomId);
+      room.players.forEach(p => playerToRoom.delete(p.userId));
+    } else {
+      // Remove player from room, keep game going
+      // Rage-quit protection/forfeits: record loss immediately for the disconnecting player
+      if (room.phase === "game" && !player.userId.startsWith("guest_")) {
+        const playerScore = room.scores.get(player.userId) ?? 0;
+        db.insert(arenaStatsTable).values({
+          userId: player.userId,
+          wins: 0,
+          losses: 1,
+          draws: 0,
+          totalGames: 1,
+          totalScore: playerScore,
+        }).onConflictDoUpdate({
+          target: arenaStatsTable.userId,
+          set: {
+            losses: sql`${arenaStatsTable.losses} + 1`,
+            totalGames: sql`${arenaStatsTable.totalGames} + 1`,
+            totalScore: sql`${arenaStatsTable.totalScore} + ${playerScore}`,
+          }
+        }).catch(err => logger.error({ err }, "Failed to record loss for disconnected player"));
+      }
+
+      room.players = room.players.filter(p => p.userId !== player.userId);
+      playerToRoom.delete(player.userId);
+      room.readyPlayers.delete(player.userId);
+      room.scores.delete(player.userId);
+      room.shields.delete(player.userId);
+      room.questionAnswers.delete(player.userId);
+
+      sendAll(room, { type: "PLAYER_LEFT", userId: player.userId, username: player.username });
+
+      // If only 1 player remains in the room, they win by default and the room ends
+      if (room.players.length === 1) {
+        const remainingPlayer = room.players[0]!;
+        if (room.questionTimer) { clearTimeout(room.questionTimer); room.questionTimer = null; }
+        
+        if (room.phase === "game") {
+          persistMultiGameResult(room, remainingPlayer.userId).catch(err =>
+            logger.error({ err }, "Failed to persist multi-player arena result on sole survivor")
+          );
+        }
+
+        sendAll(room, { type: "OPPONENT_LEFT", userId: remainingPlayer.userId, username: remainingPlayer.username });
+        if (room.code) friendRoomsByCode.delete(room.code);
+        rooms.delete(roomId);
+        playerToRoom.delete(remainingPlayer.userId);
+        return;
+      }
+
+      // If all remaining players have answered, resolve the question
+      const allAnswered = room.players.every(p => room.questionAnswers.get(p.userId) !== null);
+      if (allAnswered && room.phase === "game") {
+        if (room.questionTimer) { clearTimeout(room.questionTimer); room.questionTimer = null; }
+        resolveQuestion(room);
+      }
+    }
   }
 }
 
@@ -724,13 +932,56 @@ export function setupArena(server: Server) {
 
       if (!player) {
         if (msg.type === "INIT") {
-          player = {
-            ws,
-            userId: msg.userId ?? `guest_${uid()}`,
-            username: msg.username ?? "Anonymous",
-            profileImageUrl: msg.profileImageUrl ?? null,
-          };
-          send(ws, { type: "READY" });
+          (async () => {
+            try {
+              let userId = `guest_${uid()}`;
+              let username = `Guest_${uid().slice(0, 4)}`;
+              let profileImageUrl: string | null = null;
+
+              if (msg.testUserId && process.env.NODE_ENV !== "production" && process.env.ENABLE_ARENA_TEST_BYPASS === "true") {
+                userId = msg.testUserId;
+                username = `Test_${userId.slice(0, 4)}`;
+              } else if (msg.token) {
+                const { data: { user }, error } = await supabase.auth.getUser(msg.token);
+                if (error || !user) {
+                  send(ws, { type: "ERROR", message: "Invalid session token." });
+                  return;
+                }
+                userId = user.id;
+
+                const [dbUser] = await db
+                  .select({
+                    username: profilesTable.username,
+                    profileImageUrl: usersTable.profileImageUrl,
+                  })
+                  .from(profilesTable)
+                  .leftJoin(usersTable, eq(profilesTable.userId, usersTable.id))
+                  .where(eq(profilesTable.userId, userId));
+
+                if (dbUser) {
+                  username = dbUser.username || username;
+                  profileImageUrl = dbUser.profileImageUrl || null;
+                }
+              }
+
+              const existing = activePlayers.get(userId);
+              if (existing && existing.ws !== ws) {
+                existing.ws.close();
+              }
+
+              player = {
+                ws,
+                userId,
+                username,
+                profileImageUrl,
+              };
+              activePlayers.set(userId, player);
+              send(ws, { type: "READY" });
+            } catch (err) {
+              logger.error({ err }, "Error during INIT");
+              send(ws, { type: "ERROR", message: "Failed to initialize session" });
+            }
+          })();
         }
         return;
       }

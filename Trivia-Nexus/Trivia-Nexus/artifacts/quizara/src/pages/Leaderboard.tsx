@@ -5,7 +5,7 @@ import {
   useGetMyRank, getGetMyRankQueryKey,
   useGetArenaLeaderboard, getGetArenaLeaderboardQueryKey,
 } from "@workspace/api-client-react";
-import { useAuth } from "@workspace/replit-auth-web";
+import { useSupabaseAuth } from "@/hooks/useSupabaseAuth";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Trophy, Globe, User, Swords, TrendingUp } from "lucide-react";
@@ -45,7 +45,7 @@ function WinRateBar({ winRate }: { winRate: number }) {
 }
 
 export default function Leaderboard() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated } = useSupabaseAuth();
   const [period, setPeriod] = useState<"all_time" | "weekly">("all_time");
 
   const { data: globalBoard, isLoading: loadingGlobal } = useGetLeaderboard(

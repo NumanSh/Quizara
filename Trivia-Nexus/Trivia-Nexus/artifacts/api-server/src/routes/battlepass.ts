@@ -6,8 +6,9 @@ import {
   marketplaceItemsTable,
   userInventoryTable,
 } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { awardBattlePassXp, AD_XP } from "./xpHelper";
+import { checkAdCooldown } from "../lib/adTracker";
 
 const router: IRouter = Router();
 
@@ -106,6 +107,11 @@ router.get("/api/battlepass", async (req, res): Promise<void> => {
 // POST /api/battlepass/watch-ad-xp
 router.post("/api/battlepass/watch-ad-xp", async (req, res): Promise<void> => {
   if (!req.user) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const cooldown = checkAdCooldown(req.user.id);
+  if (!cooldown.allowed) {
+    res.status(429).json({ error: "Ad reward cooldown active", remainingMs: cooldown.remainingMs });
+    return;
+  }
   try {
     await awardBattlePassXp(req.user.id, AD_XP);
     const [bp] = await db.select().from(userBattlePassTable).where(eq(userBattlePassTable.userId, req.user.id));
@@ -123,20 +129,56 @@ router.post("/api/battlepass/premium", async (req, res): Promise<void> => {
     const [profile] = await db.select().from(profilesTable).where(eq(profilesTable.userId, userId));
     if (!profile) { res.status(404).json({ error: "Profile not found" }); return; }
 
-    const [bp] = await db.select().from(userBattlePassTable).where(eq(userBattlePassTable.userId, userId));
-    if (bp?.isPremium) { res.json({ isPremium: true, message: "Already premium" }); return; }
+    let [bp] = await db.select().from(userBattlePassTable).where(eq(userBattlePassTable.userId, userId));
+    if (!bp) {
+      [bp] = await db.insert(userBattlePassTable)
+        .values({ userId, isPremium: false, claimedFreeTiers: [], claimedPremiumTiers: [] })
+        .returning();
+    }
+
+    if (bp.isPremium) { res.json({ isPremium: true, message: "Already premium" }); return; }
+
 
     if (profile.coins < PREMIUM_COST) {
       res.status(402).json({ error: "Not enough coins", required: PREMIUM_COST, current: profile.coins });
       return;
     }
 
-    await db.update(profilesTable).set({ coins: profile.coins - PREMIUM_COST }).where(eq(profilesTable.userId, userId));
-    await db.insert(userBattlePassTable)
-      .values({ userId, isPremium: true, claimedFreeTiers: [], claimedPremiumTiers: [] })
-      .onConflictDoUpdate({ target: userBattlePassTable.userId, set: { isPremium: true } });
+    // Transition battle pass status to premium first
+    const [updatedBp] = await db.update(userBattlePassTable)
+      .set({ isPremium: true })
+      .where(and(
+        eq(userBattlePassTable.userId, userId),
+        eq(userBattlePassTable.isPremium, false)
+      ))
+      .returning();
 
-    res.json({ isPremium: true, coinsSpent: PREMIUM_COST, remainingCoins: profile.coins - PREMIUM_COST });
+    if (!updatedBp) {
+      res.status(409).json({ error: "Purchase already in progress or completed" });
+      return;
+    }
+
+    // Deduct coins atomically
+    const [updatedProfile] = await db
+      .update(profilesTable)
+      .set({ coins: sql`${profilesTable.coins} - ${PREMIUM_COST}` })
+      .where(and(
+        eq(profilesTable.userId, userId),
+        sql`${profilesTable.coins} >= ${PREMIUM_COST}`
+      ))
+      .returning();
+
+    if (!updatedProfile) {
+      // Revert BP if coin deduction fails
+      await db.update(userBattlePassTable)
+        .set({ isPremium: false })
+        .where(eq(userBattlePassTable.userId, userId));
+
+      res.status(402).json({ error: "Insufficient coins" });
+      return;
+    }
+
+    res.json({ isPremium: true, coinsSpent: PREMIUM_COST, remainingCoins: updatedProfile.coins });
   } catch {
     res.status(500).json({ error: "Internal error" });
   }
@@ -176,29 +218,47 @@ router.post("/api/battlepass/claim", async (req, res): Promise<void> => {
     const [profile] = await db.select().from(profilesTable).where(eq(profilesTable.userId, userId));
     if (!profile) { res.status(404).json({ error: "Profile not found" }); return; }
 
-    if (reward.type === "coins") {
-      await db.update(profilesTable).set({ coins: profile.coins + (reward.amount ?? 0) }).where(eq(profilesTable.userId, userId));
-    } else if (reward.type === "hearts") {
-      const newHearts = Math.min(6, profile.hearts + (reward.amount ?? 1));
-      await db.update(profilesTable).set({ hearts: newHearts }).where(eq(profilesTable.userId, userId));
-    } else if (reward.type === "item" && reward.effect) {
-      const [item] = await db.select().from(marketplaceItemsTable).where(eq(marketplaceItemsTable.effect, reward.effect)).limit(1);
-      if (item) {
-        const [existing] = await db.select().from(userInventoryTable).where(and(eq(userInventoryTable.userId, userId), eq(userInventoryTable.itemId, item.id)));
-        if (existing) {
-          await db.update(userInventoryTable).set({ quantity: existing.quantity + 1 }).where(eq(userInventoryTable.id, existing.id));
-        } else {
-          await db.insert(userInventoryTable).values({ userId, itemId: item.id, quantity: 1 });
-        }
-      }
-    }
-
     const newClaimedFree = rewardType === "free" ? [...claimedFree, tier] : claimedFree;
     const newClaimedPremium = rewardType === "premium" ? [...claimedPremium, tier] : claimedPremium;
-    await db.update(userBattlePassTable).set({ claimedFreeTiers: newClaimedFree, claimedPremiumTiers: newClaimedPremium }).where(eq(userBattlePassTable.userId, userId));
+
+    await db.transaction(async (tx) => {
+      const [updatedBp] = await tx.update(userBattlePassTable)
+        .set({ claimedFreeTiers: newClaimedFree, claimedPremiumTiers: newClaimedPremium })
+        .where(and(
+          eq(userBattlePassTable.userId, userId),
+          rewardType === "free"
+            ? sql`NOT (${userBattlePassTable.claimedFreeTiers} @> ${JSON.stringify([tier])}::jsonb)`
+            : sql`NOT (${userBattlePassTable.claimedPremiumTiers} @> ${JSON.stringify([tier])}::jsonb)`
+        ))
+        .returning();
+
+      if (!updatedBp) {
+        throw new Error("ALREADY_CLAIMED");
+      }
+
+      if (reward.type === "coins") {
+        await tx.update(profilesTable).set({ coins: sql`${profilesTable.coins} + ${reward.amount ?? 0}` }).where(eq(profilesTable.userId, userId));
+      } else if (reward.type === "hearts") {
+        await tx.update(profilesTable).set({ hearts: sql`LEAST(6, ${profilesTable.hearts} + ${reward.amount ?? 1})` }).where(eq(profilesTable.userId, userId));
+      } else if (reward.type === "item" && reward.effect) {
+        const [item] = await tx.select().from(marketplaceItemsTable).where(eq(marketplaceItemsTable.effect, reward.effect)).limit(1);
+        if (item) {
+          await tx.insert(userInventoryTable)
+            .values({ userId, itemId: item.id, quantity: 1 })
+            .onConflictDoUpdate({
+              target: [userInventoryTable.userId, userInventoryTable.itemId],
+              set: { quantity: sql`${userInventoryTable.quantity} + 1` }
+            });
+        }
+      }
+    });
 
     res.json({ claimed: true, reward, tier, rewardType });
-  } catch {
+  } catch (err) {
+    if (err instanceof Error && err.message === "ALREADY_CLAIMED") {
+      res.status(409).json({ error: "Reward already claimed or session modified" });
+      return;
+    }
     res.status(500).json({ error: "Internal error" });
   }
 });

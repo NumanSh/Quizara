@@ -1,13 +1,31 @@
-import { useAuth } from "@workspace/replit-auth-web";
+import { useSupabaseAuth } from "@/hooks/useSupabaseAuth";
 import { useLocation } from "wouter";
 import { LogIn, Compass, Trophy, Zap, Globe, Star } from "lucide-react";
+import { FcGoogle } from "react-icons/fc";
+import { useEffect } from "react";
 
 export default function Login() {
-  const { login, isAuthenticated } = useAuth();
+  const { login, isAuthenticated, isLoading } = useSupabaseAuth();
   const [, setLocation] = useLocation();
 
+  useEffect(() => {
+    if (!isLoading && isAuthenticated) {
+      setLocation("/");
+    }
+  }, [isAuthenticated, isLoading, setLocation]);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-3">
+          <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-primary" />
+          <p className="text-xs text-muted-foreground">Loading session...</p>
+        </div>
+      </div>
+    );
+  }
+
   if (isAuthenticated) {
-    setLocation("/");
     return null;
   }
 
@@ -119,10 +137,10 @@ export default function Login() {
             {/* Sign in button */}
             <button
               onClick={() => login()}
-              className="w-full h-13 py-3.5 rounded-2xl bg-gradient-to-r from-secondary to-primary text-white font-bold text-base hover:opacity-90 active:scale-[0.98] transition-all duration-150 flex items-center justify-center gap-2 shadow-lg shadow-secondary/20"
+              className="w-full h-13 py-3.5 rounded-2xl bg-white text-gray-900 font-bold text-base hover:bg-gray-50 active:scale-[0.98] transition-all duration-150 flex items-center justify-center gap-3 shadow-lg shadow-black/10 border border-gray-200"
             >
-              <LogIn className="h-5 w-5" />
-              Sign in with Replit
+              <FcGoogle className="h-6 w-6" />
+              Sign in with Google
             </button>
 
             <div className="relative my-5">
@@ -150,7 +168,7 @@ export default function Login() {
 
           {/* Trust note */}
           <p className="text-xs text-muted-foreground text-center mt-4">
-            Powered by Replit Auth — no passwords stored
+            Secured by Supabase Auth — no passwords stored
           </p>
         </div>
       </div>

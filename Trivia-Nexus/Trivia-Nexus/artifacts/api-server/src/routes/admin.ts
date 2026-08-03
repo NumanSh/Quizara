@@ -1,17 +1,49 @@
 import { Router, type IRouter } from "express";
+import multer from "multer";
+import { randomUUID } from "node:crypto";
 import { db } from "@workspace/db";
 import { categoriesTable, questionsTable, profilesTable, quizSessionsTable, usersTable, settingsTable, marketplaceItemsTable } from "@workspace/db";
-import { eq, sql, desc } from "drizzle-orm";
+import { eq, sql, desc, inArray } from "drizzle-orm";
 import { AdminCreateCategoryBody, AdminCreateQuestionBody } from "@workspace/api-zod";
 import { autoGenerateCategoryTask } from "./dailyTasks";
+import { parseWorkbookRows, validateRow, buildTemplateBuffer, type ValidatedQuestion, type RowError } from "../lib/questionImport";
+import { savePendingImport, getPendingImport, deletePendingImport } from "../lib/questionImportCache";
 
 const router: IRouter = Router();
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const okExt = file.originalname.toLowerCase().endsWith(".xlsx");
+    const okMime = file.mimetype === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    if (okExt || okMime) cb(null, true);
+    else cb(new Error("Only .xlsx files are supported"));
+  },
+});
+
+function uploadSingle(fieldName: string) {
+  const middleware = upload.single(fieldName);
+  return (req: any, res: any, next: any) => {
+    middleware(req, res, (err: any) => {
+      if (err) {
+        res.status(400).json({ error: err.message || "File upload failed" });
+        return;
+      }
+      next();
+    });
+  };
+}
 
 const MAX_HEARTS = 6;
 
 function requireAdmin(req: any, res: any): boolean {
   if (!req.isAuthenticated()) {
     res.status(401).json({ error: "Unauthorized" });
+    return false;
+  }
+  if (req.user.role !== "admin") {
+    res.status(403).json({ error: "Forbidden: Admin role required" });
     return false;
   }
   return true;
@@ -225,6 +257,242 @@ router.delete("/admin/questions/:questionId", async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     req.log.error({ err }, "Failed to delete question");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── Bulk question import (Excel) ───────────────────────────────────────────────
+
+router.get("/admin/questions/import/template", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const buffer = await buildTemplateBuffer();
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", "attachment; filename=\"questions_template.xlsx\"");
+    res.send(buffer);
+  } catch (err) {
+    req.log.error({ err }, "Failed to build question import template");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/admin/questions/import/preview", uploadSingle("file"), async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const file = (req as any).file as Express.Multer.File | undefined;
+    if (!file) {
+      res.status(400).json({ error: "No file uploaded (expected multipart field 'file')" });
+      return;
+    }
+
+    const { rawRows, errors: parseErrors } = await parseWorkbookRows(file.buffer);
+    if (rawRows.length === 0) {
+      res.status(400).json({ error: "No usable rows found in the uploaded file", errors: parseErrors });
+      return;
+    }
+
+    const validRows: ValidatedQuestion[] = [];
+    const rowErrors: RowError[] = [...parseErrors];
+    for (const raw of rawRows) {
+      const { valid, errors } = validateRow(raw);
+      if (valid) validRows.push(valid);
+      rowErrors.push(...errors);
+    }
+
+    const allCategories = await db.select().from(categoriesTable);
+    const topLevelByName = new Map<string, string>();
+    const subByParentAndName = new Map<string, string>();
+    for (const cat of allCategories) {
+      if (!cat.parentId) {
+        topLevelByName.set(cat.name.toLowerCase(), cat.id);
+      } else {
+        subByParentAndName.set(`${cat.parentId}::${cat.name.toLowerCase()}`, cat.id);
+      }
+    }
+
+    const subjectsToCreate = new Map<string, string>(); // lowercase -> original casing
+    const subcategoriesToCreate = new Map<string, { subject: string; subcategory: string }>(); // "subjectLower::subLower" -> original casing
+
+    for (const row of validRows) {
+      const subjectKey = row.subject.toLowerCase();
+      const subjectExists = topLevelByName.has(subjectKey);
+      if (!subjectExists && !subjectsToCreate.has(subjectKey)) {
+        subjectsToCreate.set(subjectKey, row.subject);
+      }
+
+      if (row.subcategory) {
+        const subKey = `${subjectKey}::${row.subcategory.toLowerCase()}`;
+        if (subjectExists) {
+          const parentId = topLevelByName.get(subjectKey)!;
+          const exists = subByParentAndName.has(`${parentId}::${row.subcategory.toLowerCase()}`);
+          if (!exists && !subcategoriesToCreate.has(subKey)) {
+            subcategoriesToCreate.set(subKey, { subject: row.subject, subcategory: row.subcategory });
+          }
+        } else if (!subcategoriesToCreate.has(subKey)) {
+          // Subject itself is new, so the subcategory is necessarily new too
+          subcategoriesToCreate.set(subKey, { subject: row.subject, subcategory: row.subcategory });
+        }
+      }
+    }
+
+    // Duplicate-question detection, limited to rows whose category already exists
+    const duplicateWarnings: Array<{ row: number; question: string }> = [];
+    const existingCategoryIds = new Set<string>();
+    const rowsAgainstExistingCategory: Array<{ row: ValidatedQuestion; categoryId: string }> = [];
+    for (const row of validRows) {
+      const subjectKey = row.subject.toLowerCase();
+      if (!topLevelByName.has(subjectKey)) continue;
+      let categoryId = topLevelByName.get(subjectKey)!;
+      if (row.subcategory) {
+        const subId = subByParentAndName.get(`${categoryId}::${row.subcategory.toLowerCase()}`);
+        if (!subId) continue; // subcategory is new, can't have existing duplicates
+        categoryId = subId;
+      }
+      existingCategoryIds.add(categoryId);
+      rowsAgainstExistingCategory.push({ row, categoryId });
+    }
+    if (existingCategoryIds.size > 0) {
+      const existingQuestions = await db
+        .select({ categoryId: questionsTable.categoryId, question: questionsTable.question })
+        .from(questionsTable)
+        .where(inArray(questionsTable.categoryId, [...existingCategoryIds]));
+      const existingSet = new Set(existingQuestions.map(q => `${q.categoryId}::${q.question.trim().toLowerCase()}`));
+      for (const { row, categoryId } of rowsAgainstExistingCategory) {
+        if (existingSet.has(`${categoryId}::${row.question.trim().toLowerCase()}`)) {
+          duplicateWarnings.push({ row: row.row, question: row.question });
+        }
+      }
+    }
+
+    const importId = randomUUID();
+    savePendingImport(importId, {
+      adminId: req.user!.id,
+      createdAt: Date.now(),
+      validRows,
+      subjectsToCreate: [...subjectsToCreate.values()],
+      subcategoriesToCreate: [...subcategoriesToCreate.values()],
+    });
+
+    res.json({
+      importId,
+      totalRows: rawRows.length,
+      validCount: validRows.length,
+      errors: rowErrors,
+      newSubjects: [...subjectsToCreate.values()],
+      newSubcategories: [...subcategoriesToCreate.values()],
+      duplicateWarnings,
+    });
+  } catch (err) {
+    req.log.error({ err }, "Failed to preview question import");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/admin/questions/import/commit", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const { importId } = req.body as { importId?: string };
+    if (!importId || typeof importId !== "string") {
+      res.status(400).json({ error: "importId is required" });
+      return;
+    }
+
+    const pending = getPendingImport(importId);
+    if (!pending) {
+      res.status(410).json({ error: "Import session expired or not found — please re-upload the file" });
+      return;
+    }
+    if (pending.adminId !== req.user!.id) {
+      res.status(403).json({ error: "This import was started by a different admin session" });
+      return;
+    }
+    if (pending.validRows.length === 0) {
+      res.status(400).json({ error: "This import has no valid rows to commit" });
+      return;
+    }
+
+    let questionsImported = 0;
+    let categoriesCreated = 0;
+
+    await db.transaction(async (tx) => {
+      const allExisting = await tx.select().from(categoriesTable);
+      const byId = new Map(allExisting.map(c => [c.id, c]));
+
+      const subjectIdByName = new Map<string, string>();
+      for (const cat of allExisting) {
+        if (!cat.parentId) subjectIdByName.set(cat.name.toLowerCase(), cat.id);
+      }
+
+      for (const subjectName of pending.subjectsToCreate) {
+        const key = subjectName.toLowerCase();
+        if (subjectIdByName.has(key)) continue; // created by a race since preview, don't duplicate
+        const [created] = await tx.insert(categoriesTable).values({
+          name: subjectName,
+          nameAr: subjectName,
+          icon: "📚",
+        }).returning();
+        subjectIdByName.set(key, created.id);
+        categoriesCreated++;
+      }
+
+      const subIdByKey = new Map<string, string>(); // "subjectLower::subLower" -> id
+      for (const cat of allExisting) {
+        if (cat.parentId) {
+          const parent = byId.get(cat.parentId);
+          if (parent) subIdByKey.set(`${parent.name.toLowerCase()}::${cat.name.toLowerCase()}`, cat.id);
+        }
+      }
+
+      for (const { subject, subcategory } of pending.subcategoriesToCreate) {
+        const key = `${subject.toLowerCase()}::${subcategory.toLowerCase()}`;
+        if (subIdByKey.has(key)) continue;
+        const parentId = subjectIdByName.get(subject.toLowerCase());
+        if (!parentId) continue; // shouldn't happen — subject is created above
+        const [created] = await tx.insert(categoriesTable).values({
+          name: subcategory,
+          nameAr: subcategory,
+          icon: "📚",
+          parentId,
+        }).returning();
+        subIdByKey.set(key, created.id);
+        categoriesCreated++;
+      }
+
+      const rowsToInsert = pending.validRows.map(row => {
+        const subjectKey = row.subject.toLowerCase();
+        const categoryId = row.subcategory
+          ? subIdByKey.get(`${subjectKey}::${row.subcategory.toLowerCase()}`)
+          : subjectIdByName.get(subjectKey);
+        return { row, categoryId };
+      });
+
+      const missing = rowsToInsert.filter(r => !r.categoryId);
+      if (missing.length > 0) {
+        throw new Error(`Could not resolve category for ${missing.length} row(s) (e.g. row ${missing[0].row.row})`);
+      }
+
+      await tx.insert(questionsTable).values(
+        rowsToInsert.map(({ row, categoryId }) => ({
+          categoryId: categoryId!,
+          questionType: row.questionType,
+          question: row.question,
+          questionAr: row.questionAr,
+          imageUrl: row.imageUrl,
+          options: row.options,
+          optionsAr: row.optionsAr,
+          correctAnswer: row.correctAnswer,
+          explanation: row.explanation,
+          explanationAr: row.explanationAr,
+          difficulty: row.difficulty,
+        })),
+      );
+      questionsImported = rowsToInsert.length;
+    });
+
+    deletePendingImport(importId);
+    res.json({ success: true, categoriesCreated, questionsImported });
+  } catch (err) {
+    req.log.error({ err }, "Failed to commit question import");
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -532,13 +800,12 @@ router.delete("/admin/marketplace/:id", async (req, res) => {
 });
 
 // Admin settings
-const DEFAULT_ADMIN_CODE = "QUIZARA_ADMIN_2024";
 
 router.get("/admin/settings", async (req, res) => {
   if (!requireAdmin(req, res)) return;
   try {
     const [row] = await db.select().from(settingsTable).where(eq(settingsTable.key, "admin_code"));
-    res.json({ adminCode: row?.value ?? DEFAULT_ADMIN_CODE });
+    res.json({ adminCode: row?.value ?? process.env.ADMIN_CODE ?? null });
   } catch (err) {
     req.log.error({ err }, "Failed to get settings");
     res.status(500).json({ error: "Internal server error" });

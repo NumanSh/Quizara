@@ -6,13 +6,15 @@ import { Progress } from "@/components/ui/progress";
 import { Timer, Trophy, CheckCircle2, XCircle, Gem, Music, ArrowUp, ArrowDown, Crosshair, Star, RotateCcw, Map, Heart, Tv2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { useAuth } from "@workspace/replit-auth-web";
+import { useSupabaseAuth } from "@/hooks/useSupabaseAuth";
 import { useHearts } from "@/hooks/useHearts";
 import { HeartsDisplay } from "@/components/HeartsDisplay";
 import { WatchAdModal } from "@/components/WatchAdModal";
 import PowerUpBar, { type PowerUpItem } from "@/components/PowerUpBar";
 import PreGamePowerUpModal from "@/components/PreGamePowerUpModal";
 import { useToast } from "@/hooks/use-toast";
+import { authFetch } from "@/lib/api";
+import { supabase } from "@/lib/supabase";
 
 // Shuffle an array without mutating
 function shuffleArray<T>(arr: T[]): T[] {
@@ -34,7 +36,7 @@ export default function Quiz() {
   const worldName = searchParams.get("worldName") ?? "";
   const isLevelMode = !!levelNum && !!worldId;
 
-  const { user } = useAuth();
+  const { user } = useSupabaseAuth();
   const { hearts, maxHearts, nextRefillMs, canPlay, deductHeart, watchAd } = useHearts(!!user?.id);
   const { toast } = useToast();
 
@@ -82,7 +84,7 @@ export default function Quiz() {
   // Fetch power-up inventory when user is known
   useEffect(() => {
     if (!user?.id) return;
-    fetch("/api/marketplace/inventory", { credentials: "include" })
+    authFetch("/api/marketplace/inventory", { credentials: "include" })
       .then(r => r.json())
       .then(data => {
         const pus = (Array.isArray(data) ? data : []).filter(
@@ -103,13 +105,26 @@ export default function Quiz() {
           const passed = (result.sessionScore ?? 0) >= 30;
           setLevelPassed(passed);
           if (!passed) { deductHeart(); }
-          // Record progress server-side (fire-and-forget)
-          fetch(`/api/quiz/levels/${sessionId}/record`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({ worldId, levelNumber: levelNum, passed }),
+          // Record progress server-side
+          supabase.auth.getSession().then(({ data: { session: authSession } }) => {
+            authFetch(`/api/quiz/levels/${sessionId}/record`, {
+              method: "POST",
+              headers: { 
+                "Content-Type": "application/json",
+                ...(authSession?.access_token ? { "Authorization": `Bearer ${authSession.access_token}` } : {})
+              },
+              credentials: "include",
+              body: JSON.stringify({ worldId, levelNumber: levelNum, passed }),
+            }).then(async r => {
+            if (r.status === 401) {
+              toast({
+                title: "Authentication Error",
+                description: "Your session has expired. Progress could not be saved.",
+                variant: "destructive",
+              });
+            }
           }).catch(() => {});
+          });
           // Also persist to localStorage for guest users
           if (passed) {
             try {
@@ -121,7 +136,10 @@ export default function Quiz() {
             } catch {}
           }
           // Show overlay after a short delay so user sees the last answer feedback
-          setTimeout(() => setShowLevelOverlay(true), 900);
+          setTimeout(() => setShowLevelOverlay(true), 200);
+        } else if (!result.isLastQuestion) {
+          // Auto-advance between questions (snappy delay for feedback visibility)
+          setTimeout(handleNext, 400);
         }
       }
     }
@@ -189,7 +207,7 @@ export default function Quiz() {
   const handlePowerUp = async (itemId: string, effect: string) => {
     if (effect === "fifty_fifty") {
       try {
-        const res = await fetch("/api/powerups/fifty-fifty", {
+        const res = await authFetch("/api/powerups/fifty-fifty", {
           method: "POST", credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ questionId: question?.id, itemId }),
@@ -207,7 +225,7 @@ export default function Quiz() {
     }
     // Consume item
     try {
-      const res = await fetch("/api/marketplace/use-item", {
+      const res = await authFetch("/api/marketplace/use-item", {
         method: "POST", credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ itemId }),
@@ -317,7 +335,7 @@ export default function Quiz() {
     if (answerResult?.isLastQuestion) {
       if (isLevelMode) return; // overlay handles navigation
       // Streak checkin — store milestone result for Results page
-      fetch("/api/streak/checkin", { method: "POST", credentials: "include" })
+      authFetch("/api/streak/checkin", { method: "POST", credentials: "include" })
         .then(r => r.ok ? r.json() : null)
         .then(data => {
           if (data?.milestoneReached && data?.coinsAwarded > 0) {
@@ -340,7 +358,7 @@ export default function Quiz() {
   const handleTryAgain = async () => {
     setStartingNext(true);
     try {
-      const res = await fetch("/api/quiz/levels/start", {
+      const res = await authFetch("/api/quiz/levels/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -360,7 +378,7 @@ export default function Quiz() {
 
   const handleFailAdComplete = async () => {
     try {
-      const res = await fetch("/api/hearts/watch-ad-fail-bonus", {
+      const res = await authFetch("/api/hearts/watch-ad-fail-bonus", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -380,7 +398,7 @@ export default function Quiz() {
   const handleNextLevel = async () => {
     setStartingNext(true);
     try {
-      const res = await fetch("/api/quiz/levels/start", {
+      const res = await authFetch("/api/quiz/levels/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -684,6 +702,7 @@ export default function Quiz() {
             onUse={handlePowerUp}
             disabled={!!answerResult || submitAnswer.isPending}
             allowedEffects={["fifty_fifty", "extra_time", "skip_question", "double_score", "freeze_timer"]}
+            currentQuestionType={qType}
           />
         </div>
       )}

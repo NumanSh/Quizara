@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useAuth } from "@workspace/replit-auth-web";
+import { useSupabaseAuth } from "@/hooks/useSupabaseAuth";
 import {
   useGetProfile,
   useUpdateProfile,
@@ -73,7 +73,7 @@ const STEPS = ["welcome", "username", "country", "done"] as const;
 type Step = (typeof STEPS)[number];
 
 export function ProfileSetupModal() {
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, user } = useSupabaseAuth();
   const queryClient = useQueryClient();
   const [step, setStep] = useState<Step>("welcome");
   const [username, setUsername] = useState("");
@@ -179,7 +179,7 @@ export function ProfileSetupModal() {
                   Welcome to Quizara!
                 </h2>
                 <p className="text-muted-foreground text-sm">
-                  Hey, {user?.firstName || "Player"}! Let's get you set up.
+                  Hey, {user?.user_metadata?.full_name || user?.user_metadata?.name || "Player"}! Let's get you set up.
                 </p>
               </div>
 

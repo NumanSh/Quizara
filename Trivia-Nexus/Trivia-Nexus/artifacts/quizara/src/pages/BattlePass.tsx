@@ -2,11 +2,12 @@ import { useEffect, useState, useCallback } from "react";
 import { Zap, Crown, Lock, Check, Gem, Heart, ChevronRight, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { useAuth } from "@workspace/replit-auth-web";
+import { useSupabaseAuth } from "@/hooks/useSupabaseAuth";
 import { WatchAdModal } from "@/components/WatchAdModal";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGetProfileQueryKey } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
+import { authFetch } from "@/lib/api";
 
 const XP_PER_TIER = 200;
 const PREMIUM_COST = 1500;
@@ -187,7 +188,7 @@ function TierCard({
 }
 
 export default function BattlePass() {
-  const { isAuthenticated, login } = useAuth();
+  const { isAuthenticated, login } = useSupabaseAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [data, setData] = useState<BattlePassData | null>(null);
@@ -199,7 +200,7 @@ export default function BattlePass() {
   const fetchData = useCallback(async () => {
     if (!isAuthenticated) { setLoading(false); return; }
     try {
-      const res = await fetch("/api/battlepass", { credentials: "include" });
+      const res = await authFetch("/api/battlepass", { credentials: "include" });
       if (res.ok) setData(await res.json());
     } catch {}
     setLoading(false);
@@ -213,7 +214,7 @@ export default function BattlePass() {
   };
 
   const handleAdComplete = async () => {
-    const res = await fetch("/api/battlepass/watch-ad-xp", { method: "POST", credentials: "include" });
+    const res = await authFetch("/api/battlepass/watch-ad-xp", { method: "POST", credentials: "include" });
     if (res.ok) {
       const d = await res.json();
       toast({ title: `+${AD_XP} XP!`, description: "Battle Pass XP added — keep it up!" });
@@ -227,7 +228,7 @@ export default function BattlePass() {
     const key = `${tierNum}-${rewardType}`;
     setClaiming(key);
     try {
-      const res = await fetch("/api/battlepass/claim", {
+      const res = await authFetch("/api/battlepass/claim", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -250,7 +251,7 @@ export default function BattlePass() {
     if (!isAuthenticated) { login(); return; }
     setUpgrading(true);
     try {
-      const res = await fetch("/api/battlepass/premium", { method: "POST", credentials: "include" });
+      const res = await authFetch("/api/battlepass/premium", { method: "POST", credentials: "include" });
       const d = await res.json();
       if (res.ok) {
         toast({ title: "🎉 Premium Unlocked!", description: `Welcome to Battle Pass Premium! ${d.coinsSpent} coins spent.` });

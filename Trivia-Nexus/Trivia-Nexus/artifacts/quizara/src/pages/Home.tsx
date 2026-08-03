@@ -4,7 +4,7 @@ import {
   useListCategories, getListCategoriesQueryKey,
   useGetLeaderboard, getGetLeaderboardQueryKey,
 } from "@workspace/api-client-react";
-import { useAuth } from "@workspace/replit-auth-web";
+import { useSupabaseAuth } from "@/hooks/useSupabaseAuth";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useStreak } from "@/hooks/useStreak";
@@ -48,7 +48,7 @@ function BannerTile({ tile }: { tile: typeof BANNER_TILES[0] }) {
 const MILESTONE_COINS: Record<number, number> = { 7: 50, 30: 200, 100: 500 };
 
 export default function Home() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated } = useSupabaseAuth();
   const { data: streak } = useStreak(isAuthenticated);
   const { t } = useI18n();
 
@@ -147,7 +147,7 @@ export default function Home() {
                 : rootCategories.map((cat, i) => {
                     const accentClass = CATEGORY_ACCENT_COLORS[i % CATEGORY_ACCENT_COLORS.length];
                     return (
-                      <Link key={cat.id} href={`/categories?parent=${cat.id}`}>
+                      <Link key={cat.id} href={`/worlds/${cat.id}`}>
                         <div className={cn(
                           "group relative overflow-hidden rounded-xl border border-white/8 bg-card/80 p-6 cursor-pointer transition-all duration-200 hover:border-opacity-50",
                           accentClass

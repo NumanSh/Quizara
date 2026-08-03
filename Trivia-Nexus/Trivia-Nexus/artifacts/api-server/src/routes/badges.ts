@@ -85,10 +85,19 @@ router.post("/badges/:id/claim", async (req, res): Promise<void> => {
     const [badge] = await db.select().from(badgesTable).where(eq(badgesTable.id, id));
     if (!badge) { res.status(404).json({ error: "Badge not found" }); return; }
 
-    await db
+    const [updatedUserBadge] = await db
       .update(userBadgesTable)
       .set({ coinsClaimed: true })
-      .where(eq(userBadgesTable.id, userBadge.id));
+      .where(and(
+        eq(userBadgesTable.id, userBadge.id),
+        eq(userBadgesTable.coinsClaimed, false)
+      ))
+      .returning();
+
+    if (!updatedUserBadge) {
+      res.status(409).json({ error: "Coins already claimed or badge state modified" });
+      return;
+    }
 
     if (badge.coinReward > 0) {
       await db

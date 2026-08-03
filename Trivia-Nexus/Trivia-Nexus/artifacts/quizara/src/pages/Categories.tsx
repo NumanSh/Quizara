@@ -5,6 +5,7 @@ import { useListCategories, getListCategoriesQueryKey } from "@workspace/api-cli
 import { Search, X, ChevronRight, Map, Link2, Copy, CheckCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
+import { authFetch } from "@/lib/api";
 
 const CATEGORY_IMAGES: Record<string, string> = {
   "anime": "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=600&q=80",
@@ -152,23 +153,31 @@ function WorldCard({ category, index, onClick, onChallenge, challenging }: World
 }
 
 export default function Categories() {
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const [searchQuery, setSearchQuery] = useState("");
   const [challengingId, setChallengingId] = useState<string | null>(null);
   const { toast } = useToast();
 
-  const { data: allCategories, isLoading } = useListCategories(
-    undefined,
-    { query: { queryKey: getListCategoriesQueryKey() } }
-  );
+  // Get parentId from query string
+  const searchParams = new URLSearchParams(window.location.search);
+  const parentId = searchParams.get("parent") || undefined;
 
-  const rootCategories = (allCategories || []).filter(c => !c.parentId);
+  const { data: allCategories, isLoading } = useListCategories(
+    { parentId },
+    { 
+      query: { 
+        queryKey: getListCategoriesQueryKey({ parentId }),
+        // Re-fetch when parentId changes
+        enabled: true 
+      } 
+    }
+  );
 
   const handleChallenge = async (e: React.MouseEvent, categoryId: string, categoryName: string) => {
     e.stopPropagation();
     setChallengingId(categoryId);
     try {
-      const res = await fetch("/api/challenges", {
+      const res = await authFetch("/api/challenges", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -190,7 +199,7 @@ export default function Categories() {
     }
   };
 
-  const filtered = rootCategories.filter(c =>
+  const filtered = (allCategories || []).filter(c =>
     searchQuery === "" ||
     c.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -203,9 +212,24 @@ export default function Categories() {
       <div className="max-w-7xl mx-auto px-4 md:px-6 py-8 relative">
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-foreground tracking-tight">Choose Your World</h1>
+            <div className="flex items-center gap-2 mb-2">
+              {parentId && (
+                <button 
+                  onClick={() => setLocation("/categories")}
+                  className="text-xs font-medium text-primary hover:underline flex items-center gap-1"
+                >
+                  <ChevronRight className="h-3 w-3 rotate-180" />
+                  Back to Worlds
+                </button>
+              )}
+            </div>
+            <h1 className="text-3xl font-bold text-foreground tracking-tight">
+              {parentId ? "Explore Subcategories" : "Choose Your World"}
+            </h1>
             <p className="text-muted-foreground text-sm mt-1">
-              Each world is a journey — conquer levels to master the topic
+              {parentId 
+                ? "Select a specific topic to begin your quest" 
+                : "Each world is a journey — conquer levels to master the topic"}
             </p>
           </div>
 

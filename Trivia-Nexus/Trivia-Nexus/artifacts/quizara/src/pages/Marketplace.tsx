@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useAuth } from "@workspace/replit-auth-web";
+import { useSupabaseAuth } from "@/hooks/useSupabaseAuth";
 import {
   useListMarketplaceItems,
   useGetInventory,
@@ -24,6 +24,7 @@ import {
   FRAME_DEFS, BG_DEFS, COLOR_DEFS,
   getFrameStyle, getBgStyle, getUsernameStyle,
 } from "@/lib/cosmetics";
+import { authFetch } from "@/lib/api";
 
 // ─── Power-up metadata ────────────────────────────────────────────────────────
 const EFFECT_LABELS: Record<string, string> = {
@@ -186,7 +187,7 @@ function CosmeticCard({
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function Marketplace() {
-  const { isAuthenticated, login } = useAuth();
+  const { isAuthenticated, login } = useSupabaseAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [purchasing, setPurchasing] = useState<string | null>(null);
@@ -243,7 +244,7 @@ export default function Marketplace() {
     if (!isAuthenticated) { login(); return; }
     setEquipping(item.id);
     try {
-      const res = await fetch("/api/marketplace/equip", {
+      const res = await authFetch("/api/marketplace/equip", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -273,7 +274,7 @@ export default function Marketplace() {
   const handleCoinAdComplete = async () => {
     setAdClaiming(true);
     try {
-      const res = await fetch("/api/streak/watch-ad-coins", { method: "POST", credentials: "include" });
+      const res = await authFetch("/api/streak/watch-ad-coins", { method: "POST", credentials: "include" });
       if (res.ok) {
         queryClient.invalidateQueries({ queryKey: getGetProfileQueryKey() });
         toast({ title: `+${COINS_PER_AD} Coins!`, description: "Coins added to your balance." });

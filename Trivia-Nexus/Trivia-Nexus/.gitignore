@@ -47,3 +47,16 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Local env files
+.env
+.env.local
+.env.development
+.env.production
+
+# Local debug scripts
+check_*.mjs
+dump_*.mjs
+scratch/
+
+

@@ -110,15 +110,41 @@ export const GetProfileResponse = zod.object({
   coins: zod.number().describe("Spendable coins for the marketplace"),
   gamesPlayed: zod.number(),
   bestScore: zod.number().optional(),
+  totalXp: zod
+    .number()
+    .optional()
+    .describe(
+      "Cumulative XP earned across all seasons. Used to determine rank title.",
+    ),
+  rankTitle: zod
+    .string()
+    .optional()
+    .describe(
+      "Rank title derived from totalXp (Rookie, Scholar, Expert, Master, Legend)",
+    ),
   createdAt: zod.coerce.date(),
+  activeAvatarFrame: zod.string().nullish(),
+  activeProfileBg: zod.string().nullish(),
+  activeUsernameColor: zod.string().nullish(),
 });
 
 /**
  * @summary Update current user profile (username, country, etc.)
  */
+export const updateProfileBodyUsernameMin = 3;
+export const updateProfileBodyUsernameMax = 20;
+
+export const updateProfileBodyUsernameRegExp = new RegExp("^[a-zA-Z0-9_]+$");
+export const updateProfileBodyCountryMax = 100;
+
 export const UpdateProfileBody = zod.object({
-  username: zod.string().optional(),
-  country: zod.string().optional(),
+  username: zod
+    .string()
+    .min(updateProfileBodyUsernameMin)
+    .max(updateProfileBodyUsernameMax)
+    .regex(updateProfileBodyUsernameRegExp)
+    .optional(),
+  country: zod.string().max(updateProfileBodyCountryMax).optional(),
   role: zod.enum(["player", "admin"]).optional(),
   adminCode: zod.string().optional(),
 });
@@ -136,7 +162,22 @@ export const UpdateProfileResponse = zod.object({
   coins: zod.number().describe("Spendable coins for the marketplace"),
   gamesPlayed: zod.number(),
   bestScore: zod.number().optional(),
+  totalXp: zod
+    .number()
+    .optional()
+    .describe(
+      "Cumulative XP earned across all seasons. Used to determine rank title.",
+    ),
+  rankTitle: zod
+    .string()
+    .optional()
+    .describe(
+      "Rank title derived from totalXp (Rookie, Scholar, Expert, Master, Legend)",
+    ),
   createdAt: zod.coerce.date(),
+  activeAvatarFrame: zod.string().nullish(),
+  activeProfileBg: zod.string().nullish(),
+  activeUsernameColor: zod.string().nullish(),
 });
 
 /**
@@ -253,6 +294,14 @@ export const SubmitAnswerBody = zod.object({
     .describe(
       "JSON-encoded answer for complex types (ordering, matching, hotspot)",
     ),
+  doubleScore: zod
+    .boolean()
+    .optional()
+    .describe("Apply double score powerup to this answer"),
+  doubleScoreItemId: zod
+    .string()
+    .optional()
+    .describe("ID of the double score powerup item in inventory"),
 });
 
 export const submitAnswerResponseNextQuestionOneQuestionTypeDefault = `multiple_choice`;

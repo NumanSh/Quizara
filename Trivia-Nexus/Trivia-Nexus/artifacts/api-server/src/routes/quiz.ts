@@ -1,15 +1,14 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
-import { questionsTable, quizSessionsTable, profilesTable, categoriesTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { questionsTable, quizSessionsTable, profilesTable, categoriesTable, marketplaceItemsTable, userInventoryTable } from "@workspace/db";
+import { eq, and, sql } from "drizzle-orm";
 import { StartQuizBody, SubmitAnswerBody } from "@workspace/api-zod";
-import { awardBattlePassXp, CORRECT_ANSWER_XP, QUIZ_COMPLETE_XP } from "./xpHelper";
+import { awardBattlePassXp } from "./xpHelper";
 import { checkAndAwardBadges } from "./badgeChecker";
 import { updateDailyTaskProgress } from "./dailyTasks";
+import { getRatesForMode } from "../lib/economyConfig";
 
 const router: IRouter = Router();
-
-const POINTS_PER_CORRECT = 10;
 
 function buildQuestionPayload(q: any, questionNumber: number, totalQuestions: number) {
   return {
@@ -84,9 +83,14 @@ router.post("/quiz/start", async (req, res) => {
       res.status(400).json({ error: "Invalid request body" });
       return;
     }
-    const { categoryId, questionCount = 10 } = parsed.data;
+    const { categoryId, questionCount: rawQuestionCount = 10, difficulty } = parsed.data;
+    const questionCount = Math.max(1, Math.min(rawQuestionCount, 50));
 
-    const allQuestions = await db.select({ id: questionsTable.id }).from(questionsTable).where(eq(questionsTable.categoryId, categoryId));
+    const whereClause = difficulty != null
+      ? and(eq(questionsTable.categoryId, categoryId), eq(questionsTable.difficulty, difficulty))
+      : eq(questionsTable.categoryId, categoryId);
+
+    const allQuestions = await db.select({ id: questionsTable.id }).from(questionsTable).where(whereClause);
     if (allQuestions.length === 0) {
       res.status(400).json({ error: "No questions available for this category" });
       return;
@@ -174,6 +178,31 @@ router.post("/quiz/:sessionId/answer", async (req, res) => {
       return;
     }
 
+    // Security & Integrity Checks
+    const userId = req.isAuthenticated() ? req.user.id : null;
+    if (session.userId && session.userId !== userId) {
+      res.status(403).json({ error: "Unauthorized access to this quiz session" });
+      return;
+    }
+
+    if (session.status !== "active") {
+      res.status(400).json({ error: "Quiz session is not active" });
+      return;
+    }
+
+    const questionIds = session.questionIds as string[];
+    const currentIdx = session.currentQuestionIndex;
+
+    if (currentIdx >= questionIds.length) {
+      res.status(400).json({ error: "No more questions in this session" });
+      return;
+    }
+
+    if (questionId !== questionIds[currentIdx]) {
+      res.status(400).json({ error: "Invalid question ID for the current question index" });
+      return;
+    }
+
     const [question] = await db.select().from(questionsTable).where(eq(questionsTable.id, questionId));
     if (!question) {
       res.status(404).json({ error: "Question not found" });
@@ -181,20 +210,99 @@ router.post("/quiz/:sessionId/answer", async (req, res) => {
     }
 
     const correct = scoreAnswer(question, selectedAnswer, answerData);
-    const doubleScore = req.body.doubleScore === true && correct;
-    const pointsEarned = correct ? (doubleScore ? POINTS_PER_CORRECT * 2 : POINTS_PER_CORRECT) : 0;
+    const rates = await getRatesForMode("quiz");
+
+    let doubleScore = false;
+    if (req.body.doubleScore === true && correct) {
+      if (session.userId) {
+        const doubleScoreItemId = req.body.doubleScoreItemId;
+        if (!doubleScoreItemId || typeof doubleScoreItemId !== "string") {
+          res.status(400).json({ error: "doubleScoreItemId is required to apply double score" });
+          return;
+        }
+
+        const [item] = await db.select().from(marketplaceItemsTable).where(eq(marketplaceItemsTable.id, doubleScoreItemId));
+        if (!item || item.type !== "powerup" || item.effect !== "double_score") {
+          res.status(400).json({ error: "Invalid double score power-up item" });
+          return;
+        }
+
+        const [entry] = await db.select().from(userInventoryTable)
+          .where(and(eq(userInventoryTable.userId, session.userId), eq(userInventoryTable.itemId, doubleScoreItemId)));
+
+        if (!entry || entry.quantity < 1) {
+          res.status(400).json({ error: "Double score power-up not in inventory" });
+          return;
+        }
+
+        if (entry.quantity === 1) {
+          const [deleted] = await db.delete(userInventoryTable)
+            .where(and(
+              eq(userInventoryTable.id, entry.id),
+              eq(userInventoryTable.quantity, 1)
+            ))
+            .returning();
+          if (!deleted) {
+            res.status(409).json({ error: "Inventory updated concurrently, try again" });
+            return;
+          }
+        } else {
+          const [updated] = await db.update(userInventoryTable)
+            .set({ quantity: entry.quantity - 1 })
+            .where(and(
+              eq(userInventoryTable.id, entry.id),
+              eq(userInventoryTable.quantity, entry.quantity)
+            ))
+            .returning();
+          if (!updated) {
+            res.status(409).json({ error: "Inventory updated concurrently, try again" });
+            return;
+          }
+        }
+        doubleScore = true;
+      }
+      // Guests have no inventory to validate a power-up against, so no double score for them
+    }
+
+    const pointsEarned = correct ? (doubleScore ? rates.scorePerCorrect * 2 : rates.scorePerCorrect) : 0;
     const newScore = session.score + pointsEarned;
     const newCorrect = session.correctAnswers + (correct ? 1 : 0);
-    const newIdx = session.currentQuestionIndex + 1;
-    const questionIds = session.questionIds as string[];
+    const newIdx = currentIdx + 1;
     const isLastQuestion = newIdx >= questionIds.length;
 
-    await db.update(quizSessionsTable).set({
-      score: newScore,
-      correctAnswers: newCorrect,
-      currentQuestionIndex: newIdx,
-      ...(isLastQuestion ? { status: "completed", completedAt: new Date() } : {}),
-    }).where(eq(quizSessionsTable.id, sessionId));
+    let sessionUpdateFailed = false;
+    await db.transaction(async (tx) => {
+      const [updatedSession] = await tx.update(quizSessionsTable).set({
+        score: newScore,
+        correctAnswers: newCorrect,
+        currentQuestionIndex: newIdx,
+        ...(isLastQuestion ? { status: "completed", completedAt: new Date() } : {}),
+      }).where(and(
+        eq(quizSessionsTable.id, sessionId),
+        eq(quizSessionsTable.currentQuestionIndex, currentIdx)
+      )).returning();
+
+      if (!updatedSession) {
+        sessionUpdateFailed = true;
+        return;
+      }
+
+      // For level sessions, rewards are handled by the record endpoint (first-time pass only)
+      if (isLastQuestion && session.userId && session.levelNumber === null) {
+        const totalCoinsForGame = newCorrect * rates.coinsPerCorrect;
+        await tx.update(profilesTable).set({
+          totalScore: sql`${profilesTable.totalScore} + ${newScore}`,
+          coins: sql`${profilesTable.coins} + ${totalCoinsForGame}`,
+          gamesPlayed: sql`${profilesTable.gamesPlayed} + 1`,
+          bestScore: sql`GREATEST(${profilesTable.bestScore}, ${newScore})`,
+        }).where(eq(profilesTable.userId, session.userId));
+      }
+    });
+
+    if (sessionUpdateFailed) {
+      res.status(409).json({ error: "Answer already submitted for this question" });
+      return;
+    }
 
     let nextQuestion = null;
     if (!isLastQuestion) {
@@ -202,25 +310,11 @@ router.post("/quiz/:sessionId/answer", async (req, res) => {
       if (nq) nextQuestion = buildQuestionPayload(nq, newIdx + 1, questionIds.length);
     }
 
-    const coinsEarned = correct ? 5 : 0;
-
-    // For level sessions, rewards are handled by the record endpoint (first-time pass only)
-    if (isLastQuestion && session.userId && session.levelNumber === null) {
-      const [profile] = await db.select().from(profilesTable).where(eq(profilesTable.userId, session.userId));
-      if (profile) {
-        const totalCoinsForGame = newCorrect * 5;
-        await db.update(profilesTable).set({
-          totalScore: profile.totalScore + newScore,
-          coins: profile.coins + totalCoinsForGame,
-          gamesPlayed: profile.gamesPlayed + 1,
-          bestScore: Math.max(profile.bestScore, newScore),
-        }).where(eq(profilesTable.userId, session.userId));
-      }
-    }
+    const coinsEarned = correct ? rates.coinsPerCorrect : 0;
 
     // Award battle pass XP for correct answers and quiz completion
     if (session.userId) {
-      const xpToAward = (correct ? CORRECT_ANSWER_XP : 0) + (isLastQuestion ? QUIZ_COMPLETE_XP : 0);
+      const xpToAward = (correct ? rates.xpPerCorrect : 0) + (isLastQuestion ? rates.xpOnComplete : 0);
       if (xpToAward > 0) {
         awardBattlePassXp(session.userId, xpToAward).catch(() => {});
       }

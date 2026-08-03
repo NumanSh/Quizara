@@ -4,8 +4,9 @@ import { Trophy, Users, Clock, Copy, Play, CheckCheck, Link2, Medal, Crown, Star
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { useAuth } from "@workspace/replit-auth-web";
+import { useSupabaseAuth } from "@/hooks/useSupabaseAuth";
 import { useToast } from "@/hooks/use-toast";
+import { authFetch } from "@/lib/api";
 
 interface ChallengeScore {
   rank: number;
@@ -45,7 +46,7 @@ function RankIcon({ rank }: { rank: number }) {
 export default function Challenge() {
   const { code } = useParams<{ code: string }>();
   const [, setLocation] = useLocation();
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, user } = useSupabaseAuth();
   const { toast } = useToast();
 
   const [info, setInfo] = useState<ChallengeInfo | null>(null);
@@ -58,7 +59,7 @@ export default function Challenge() {
 
   useEffect(() => {
     if (!code) return;
-    fetch(`/api/challenges/${code}`, { credentials: "include" })
+    authFetch(`/api/challenges/${code}`)
       .then(r => {
         if (r.status === 404) { setNotFound(true); return null; }
         return r.json();
@@ -98,10 +99,9 @@ export default function Challenge() {
     }
     setStarting(true);
     try {
-      const res = await fetch(`/api/challenges/${code}/start`, {
+      const res = await authFetch(`/api/challenges/${code}/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify({}),
       });
       if (!res.ok) throw new Error("Failed to start");

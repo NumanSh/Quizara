@@ -68,6 +68,7 @@ export const quizSessionsTable = pgTable("quiz_sessions", {
   currentQuestionIndex: integer("current_question_index").notNull().default(0),
   questionIds: jsonb("question_ids").$type<string[]>().notNull().default([]),
   levelNumber: integer("level_number"),
+  failBonusClaimed: boolean("fail_bonus_claimed").notNull().default(false),
   startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
   completedAt: timestamp("completed_at", { withTimezone: true }),
 });
@@ -93,7 +94,9 @@ export const userInventoryTable = pgTable("user_inventory", {
   quantity: integer("quantity").notNull().default(1),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
-});
+}, (table) => [
+  uniqueIndex("ui_user_item_idx").on(table.userId, table.itemId),
+]);
 
 export type Profile = typeof profilesTable.$inferSelect;
 export type InsertProfile = typeof profilesTable.$inferInsert;
@@ -108,6 +111,19 @@ export const settingsTable = pgTable("settings", {
   value: text("value").notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
+
+export const economyRatesTable = pgTable("economy_rates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  mode: varchar("mode", { length: 50 }).notNull(),
+  metric: varchar("metric", { length: 50 }).notNull(),
+  value: integer("value").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+}, (table) => [
+  uniqueIndex("er_mode_metric_idx").on(table.mode, table.metric),
+]);
+
+export type EconomyRate = typeof economyRatesTable.$inferSelect;
+export type InsertEconomyRate = typeof economyRatesTable.$inferInsert;
 
 export const levelProgressTable = pgTable("level_progress", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -163,7 +179,9 @@ export const challengeScoresTable = pgTable("challenge_scores", {
   totalQuestions: integer("total_questions").notNull().default(0),
   timeTaken: integer("time_taken").notNull().default(0),
   completedAt: timestamp("completed_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [
+  uniqueIndex("cs_session_idx").on(table.sessionId),
+]);
 
 export const badgesTable = pgTable("badges", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -185,7 +203,9 @@ export const userBadgesTable = pgTable("user_badges", {
   badgeId: varchar("badge_id").notNull().references(() => badgesTable.id, { onDelete: "cascade" }),
   earnedAt: timestamp("earned_at", { withTimezone: true }).notNull().defaultNow(),
   coinsClaimed: boolean("coins_claimed").notNull().default(false),
-});
+}, (table) => [
+  uniqueIndex("ub_user_badge_idx").on(table.userId, table.badgeId),
+]);
 
 export type MarketplaceItem = typeof marketplaceItemsTable.$inferSelect;
 export type UserInventory = typeof userInventoryTable.$inferSelect;

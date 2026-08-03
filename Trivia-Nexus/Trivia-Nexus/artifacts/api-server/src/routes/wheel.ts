@@ -1,7 +1,10 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
-import { profilesTable, marketplaceItemsTable, userInventoryTable, userBattlePassTable } from "@workspace/db";
-import { eq, sql } from "drizzle-orm";
+import { profilesTable, marketplaceItemsTable, userInventoryTable } from "@workspace/db";
+import { eq, sql, and } from "drizzle-orm";
+import { checkAdCooldown } from "../lib/adTracker";
+import { getRatesForMode } from "../lib/economyConfig";
+import { awardBattlePassXp } from "./xpHelper";
 
 const router: IRouter = Router();
 
@@ -15,25 +18,36 @@ interface Segment {
   color: string;
 }
 
-export const WHEEL_SEGMENTS: Segment[] = [
-  { id: "coins_50",  label: "50 Coins",    emoji: "🪙", type: "coins",   amount: 50,  weight: 30, color: "#F59E0B" },
-  { id: "coins_100", label: "100 Coins",   emoji: "🪙", type: "coins",   amount: 100, weight: 20, color: "#EAB308" },
-  { id: "heart_1",   label: "1 Heart",     emoji: "❤️",  type: "heart",   amount: 1,   weight: 20, color: "#EF4444" },
-  { id: "coins_200", label: "200 Coins",   emoji: "🪙", type: "coins",   amount: 200, weight: 10, color: "#D97706" },
-  { id: "heart_2",   label: "2 Hearts",    emoji: "❤️",  type: "heart",   amount: 2,   weight: 10, color: "#EC4899" },
-  { id: "powerup",   label: "Power-Up!",   emoji: "⚡", type: "powerup", amount: 1,   weight: 5,  color: "#8B5CF6" },
-  { id: "xp_100",    label: "+100 XP",     emoji: "⭐", type: "xp",      amount: 100, weight: 4,  color: "#3B82F6" },
-  { id: "jackpot",   label: "JACKPOT!",    emoji: "🏆", type: "jackpot", amount: 500, weight: 1,  color: "#10B981" },
+// Segment structure (id/label/emoji/weight/color) is fixed; only the coin/XP `amount`
+// values are admin-configurable (heart/powerup amounts stay out of the 3-currency scope).
+const SEGMENT_STRUCTURE: Omit<Segment, "amount">[] = [
+  { id: "coins_50",  label: "50 Coins",    emoji: "🪙", type: "coins",   weight: 30, color: "#F59E0B" },
+  { id: "coins_100", label: "100 Coins",   emoji: "🪙", type: "coins",   weight: 20, color: "#EAB308" },
+  { id: "heart_1",   label: "1 Heart",     emoji: "❤️",  type: "heart",   weight: 20, color: "#EF4444" },
+  { id: "coins_200", label: "200 Coins",   emoji: "🪙", type: "coins",   weight: 10, color: "#D97706" },
+  { id: "heart_2",   label: "2 Hearts",    emoji: "❤️",  type: "heart",   weight: 10, color: "#EC4899" },
+  { id: "powerup",   label: "Power-Up!",   emoji: "⚡", type: "powerup", weight: 5,  color: "#8B5CF6" },
+  { id: "xp_100",    label: "+100 XP",     emoji: "⭐", type: "xp",      weight: 4,  color: "#3B82F6" },
+  { id: "jackpot",   label: "JACKPOT!",    emoji: "🏆", type: "jackpot", weight: 1,  color: "#10B981" },
 ];
+const STATIC_AMOUNTS: Record<string, number> = { heart_1: 1, heart_2: 2, powerup: 1 };
 
-function pickSegment(): Segment {
-  const total = WHEEL_SEGMENTS.reduce((s, seg) => s + seg.weight, 0);
+async function getWheelSegments(): Promise<Segment[]> {
+  const rates = await getRatesForMode("wheel");
+  return SEGMENT_STRUCTURE.map(s => ({
+    ...s,
+    amount: STATIC_AMOUNTS[s.id] ?? rates[s.id] ?? 0,
+  }));
+}
+
+function pickSegment(segments: Segment[]): Segment {
+  const total = segments.reduce((s, seg) => s + seg.weight, 0);
   let rand = Math.random() * total;
-  for (const seg of WHEEL_SEGMENTS) {
+  for (const seg of segments) {
     rand -= seg.weight;
     if (rand <= 0) return seg;
   }
-  return WHEEL_SEGMENTS[0];
+  return segments[0];
 }
 
 function todayUtc(): string {
@@ -54,13 +68,14 @@ router.get("/wheel/status", async (req, res): Promise<void> => {
     const hasUsedFreeSpinToday = profile.lastWheelDate === today;
     const extraSpins = profile.extraWheelSpins ?? 0;
     const canSpin = !hasUsedFreeSpinToday || extraSpins > 0;
+    const segments = await getWheelSegments();
 
     res.json({
       canSpin,
       freeSpinAvailable: !hasUsedFreeSpinToday,
       extraSpins,
       lastWheelDate: profile.lastWheelDate,
-      segments: WHEEL_SEGMENTS.map(s => ({ id: s.id, label: s.label, emoji: s.emoji, color: s.color })),
+      segments: segments.map(s => ({ id: s.id, label: s.label, emoji: s.emoji, color: s.color })),
     });
   } catch (err) {
     req.log.error({ err }, "Failed to get wheel status");
@@ -85,14 +100,17 @@ router.post("/wheel/spin", async (req, res): Promise<void> => {
     }
 
     // Pick a random segment
-    const segment = pickSegment();
-    const segIndex = WHEEL_SEGMENTS.findIndex(s => s.id === segment.id);
+    const segments = await getWheelSegments();
+    const rates = await getRatesForMode("wheel");
+    const segment = pickSegment(segments);
+    const segIndex = segments.findIndex(s => s.id === segment.id);
 
     // Apply the reward
     let coinsGained = 0;
     let heartsGained = 0;
     let xpGained = 0;
     let powerupName: string | null = null;
+    let powerupItem: any = null;
 
     if (segment.type === "coins") {
       coinsGained = segment.amount;
@@ -104,46 +122,61 @@ router.post("/wheel/spin", async (req, res): Promise<void> => {
       xpGained = segment.amount;
     } else if (segment.type === "powerup") {
       // Try to give a random marketplace item, fall back to coins
-      const items = await db.select().from(marketplaceItemsTable).where(eq(marketplaceItemsTable.isActive, true));
+      const items = await db.select().from(marketplaceItemsTable).where(
+        and(
+          eq(marketplaceItemsTable.isActive, true),
+          eq(marketplaceItemsTable.type, "powerup")
+        )
+      );
       if (items.length > 0) {
-        const item = items[Math.floor(Math.random() * items.length)];
-        const [existing] = await db.select().from(userInventoryTable)
-          .where(eq(userInventoryTable.userId, req.user.id));
-        if (existing) {
-          await db.update(userInventoryTable)
-            .set({ quantity: sql`${userInventoryTable.quantity} + 1` })
-            .where(eq(userInventoryTable.userId, req.user.id));
-        } else {
-          await db.insert(userInventoryTable).values({ userId: req.user.id, itemId: item.id, quantity: 1 });
-        }
-        powerupName = item.name;
+        powerupItem = items[Math.floor(Math.random() * items.length)];
+        powerupName = powerupItem.name;
       } else {
-        coinsGained = 75;
+        coinsGained = rates.powerup_fallback;
       }
     }
 
-    // Update profile
-    const newHearts = Math.min(6, (profile.hearts ?? 0) + heartsGained);
-    const newCoins = (profile.coins ?? 0) + coinsGained;
-    const updateData: Record<string, any> = {
-      coins: newCoins,
-      hearts: newHearts,
-      lastWheelDate: today,
-    };
-    if (hasUsedFreeSpinToday) {
-      updateData.extraWheelSpins = Math.max(0, extraSpins - 1);
-    }
+    const { updatedProfile, newCoins, newHearts } = await db.transaction(async (tx) => {
+      const newHearts = Math.min(6, (profile.hearts ?? 0) + heartsGained);
+      const newCoins = (profile.coins ?? 0) + coinsGained;
+      const updateData: Record<string, any> = {
+        coins: newCoins,
+        hearts: newHearts,
+        lastWheelDate: today,
+      };
+      if (hasUsedFreeSpinToday) {
+        updateData.extraWheelSpins = Math.max(0, extraSpins - 1);
+      }
+      const whereClause = and(
+        eq(profilesTable.userId, req.user.id),
+        hasUsedFreeSpinToday
+          ? eq(profilesTable.extraWheelSpins, extraSpins)
+          : sql`${profilesTable.lastWheelDate} IS DISTINCT FROM ${today}`
+      );
 
-    await db.update(profilesTable).set(updateData).where(eq(profilesTable.userId, req.user.id));
+      const [upProfile] = await tx.update(profilesTable)
+        .set(updateData)
+        .where(whereClause)
+        .returning();
 
-    // Apply XP to battle pass
+      if (!upProfile) {
+        throw new Error("SPIN_ALREADY_PROCESSED");
+      }
+
+      if (powerupItem) {
+        await tx.insert(userInventoryTable)
+          .values({ userId: req.user.id, itemId: powerupItem.id, quantity: 1 })
+          .onConflictDoUpdate({
+            target: [userInventoryTable.userId, userInventoryTable.itemId],
+            set: { quantity: sql`${userInventoryTable.quantity} + 1` }
+          });
+      }
+
+      return { updatedProfile: upProfile, newCoins, newHearts };
+    });
+
     if (xpGained > 0) {
-      const [bp] = await db.select().from(userBattlePassTable).where(eq(userBattlePassTable.userId, req.user.id));
-      if (bp) {
-        await db.update(userBattlePassTable)
-          .set({ seasonXp: sql`${userBattlePassTable.seasonXp} + ${xpGained}` })
-          .where(eq(userBattlePassTable.userId, req.user.id));
-      }
+      awardBattlePassXp(req.user.id, xpGained).catch(() => {});
     }
 
     res.json({
@@ -166,6 +199,10 @@ router.post("/wheel/spin", async (req, res): Promise<void> => {
       newHearts,
     });
   } catch (err) {
+    if (err instanceof Error && err.message === "SPIN_ALREADY_PROCESSED") {
+      res.status(409).json({ error: "Spin already processed or profile modified" });
+      return;
+    }
     req.log.error({ err }, "Spin failed");
     res.status(500).json({ error: "Internal server error" });
   }
@@ -174,6 +211,11 @@ router.post("/wheel/spin", async (req, res): Promise<void> => {
 // POST /wheel/ad-spin — grant 1 extra spin after watching an ad
 router.post("/wheel/ad-spin", async (req, res): Promise<void> => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const cooldown = checkAdCooldown(req.user.id);
+  if (!cooldown.allowed) {
+    res.status(429).json({ error: "Ad reward cooldown active", remainingMs: cooldown.remainingMs });
+    return;
+  }
   try {
     await db.update(profilesTable)
       .set({ extraWheelSpins: sql`${profilesTable.extraWheelSpins} + 1` })

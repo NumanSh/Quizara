@@ -7,16 +7,17 @@ import { cn } from "@/lib/utils";
 import { useEffect, useRef, useState } from "react";
 import { StreakMilestoneModal } from "@/components/StreakMilestoneModal";
 import { WatchAdModal } from "@/components/WatchAdModal";
-import { useAuth } from "@workspace/replit-auth-web";
+import { useSupabaseAuth } from "@/hooks/useSupabaseAuth";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { authFetch } from "@/lib/api";
 
 const AD_XP = 50;
 
 export default function Results() {
   const { sessionId } = useParams();
   const [, setLocation] = useLocation();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated } = useSupabaseAuth();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [milestone, setMilestone] = useState<{ streak: number; coins: number } | null>(null);
@@ -58,10 +59,9 @@ export default function Results() {
     if (!challengeCtx || !session || session.status !== "completed" || challengeSubmitted.current) return;
     challengeSubmitted.current = true;
     sessionStorage.removeItem("challenge_ctx");
-    fetch(`/api/challenges/${challengeCtx.code}/scores`, {
+    authFetch(`/api/challenges/${challengeCtx.code}/scores`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      credentials: "include",
       body: JSON.stringify({ sessionId, playerName: challengeCtx.playerName }),
     })
       .then(r => r.json())
@@ -84,7 +84,7 @@ export default function Results() {
   }, []);
 
   const handleAdComplete = async () => {
-    const res = await fetch("/api/battlepass/watch-ad-xp", { method: "POST", credentials: "include" });
+    const res = await authFetch("/api/battlepass/watch-ad-xp", { method: "POST" });
     if (res.ok) {
       toast({ title: `+${AD_XP} XP!`, description: "Battle Pass XP added — you're climbing the tiers!" });
       queryClient.invalidateQueries({ queryKey: getGetProfileQueryKey() });

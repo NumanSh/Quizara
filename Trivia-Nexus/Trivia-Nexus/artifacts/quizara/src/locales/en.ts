@@ -1,6 +1,6 @@
 const en = {
   lang: "en",
-  dir: "ltr" as const,
+  dir: "ltr" as "ltr" | "rtl",
 
   nav: {
     home: "Home",
@@ -223,7 +223,7 @@ const en = {
     pts: "pts",
     coins: "coins",
   },
-} as const;
+};
 
 export type Translations = typeof en;
 export default en;

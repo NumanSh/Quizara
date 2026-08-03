@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useAuth } from "@workspace/replit-auth-web";
+import { useSupabaseAuth } from "@/hooks/useSupabaseAuth";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Link } from "wouter";
+import { authFetch } from "@/lib/api";
 
 interface DailyTask {
   id: string;
@@ -37,7 +38,7 @@ const TYPE_CONFIG: Record<string, { icon: React.ElementType; color: string; labe
 };
 
 function TaskCard({ task, onClaim }: { task: DailyTask; onClaim: (id: string) => void }) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated } = useSupabaseAuth();
   const cfg = TYPE_CONFIG[task.type] ?? { icon: Star, color: "text-blue-400", label: task.type };
   const Icon = cfg.icon;
   const pct = Math.min(100, Math.round((task.currentValue / task.targetValue) * 100));
@@ -145,7 +146,7 @@ function TaskCard({ task, onClaim }: { task: DailyTask; onClaim: (id: string) =>
 }
 
 export default function DailyTasks() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated } = useSupabaseAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
   const [claimingId, setClaimingId] = useState<string | null>(null);
@@ -153,7 +154,7 @@ export default function DailyTasks() {
   const { data, isLoading, refetch } = useQuery<{ tasks: DailyTask[]; date: string }>({
     queryKey: ["daily-tasks"],
     queryFn: async () => {
-      const res = await fetch("/api/daily-tasks", { credentials: "include" });
+      const res = await authFetch("/api/daily-tasks", { credentials: "include" });
       if (!res.ok) throw new Error("Failed to load tasks");
       return res.json();
     },
@@ -162,7 +163,7 @@ export default function DailyTasks() {
 
   const claim = useMutation({
     mutationFn: async (id: string) => {
-      const res = await fetch(`/api/daily-tasks/${id}/claim`, {
+      const res = await authFetch(`/api/daily-tasks/${id}/claim`, {
         method: "POST",
         credentials: "include",
       });
