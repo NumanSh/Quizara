@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Local Environment Variables (SENSITIVE DATA - DO NOT COMMIT)
+.env
+.env.*
+!.env.example
+
+# Agent / IDE internal data
+.agents/
+.gemini/
+.vscode/
+
+# Build outputs
+dist/
+build/
+out/
+
+# Temporary / Scratch debug scripts
+scratch/
+check_*.mjs
+dump_*.mjs
+
+# Root temporary files
+/sw.js
+
+# System Files
+.DS_Store
+Thumbs.db

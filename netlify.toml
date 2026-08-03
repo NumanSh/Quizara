@@ -1,0 +1,9 @@
+[build]
+  base = "Trivia-Nexus/Trivia-Nexus"
+  command = "pnpm --filter @workspace/quizara build"
+  publish = "artifacts/quizara/dist/public"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
