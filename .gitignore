@@ -23,7 +23,7 @@ check_*.mjs
 dump_*.mjs
 
 # Root temporary files
-/sw.js
+/sw*.js
 
 # System Files
 .DS_Store
