@@ -1,11 +1,9 @@
 import { db } from "@workspace/db";
 import { userBattlePassTable, profilesTable } from "@workspace/db";
 import { sql } from "drizzle-orm";
+import { logger } from "../lib/logger";
 
 export const AD_XP = 50;
-export const CORRECT_ANSWER_XP = 10;
-export const QUIZ_COMPLETE_XP = 25;
-export const STREAK_CHECKIN_XP = 20;
 
 export const XP_RANKS = [
   { title: "Rookie",  minXp: 0 },
@@ -23,18 +21,23 @@ export function getRankTitle(totalXp: number): string {
 }
 
 export async function awardBattlePassXp(userId: string, xp: number): Promise<void> {
-  await Promise.all([
-    db.insert(userBattlePassTable)
-      .values({ userId, seasonXp: xp, claimedFreeTiers: [], claimedPremiumTiers: [] })
-      .onConflictDoUpdate({
-        target: userBattlePassTable.userId,
-        set: { seasonXp: sql`user_battle_pass.season_xp + ${xp}` },
-      }),
-    db.insert(profilesTable)
-      .values({ userId, totalXp: xp })
-      .onConflictDoUpdate({
-        target: profilesTable.userId,
-        set: { totalXp: sql`profiles.total_xp + ${xp}` },
-      }),
-  ]);
+  try {
+    await db.transaction(async (tx) => {
+      await tx.insert(userBattlePassTable)
+        .values({ userId, seasonXp: xp, claimedFreeTiers: [], claimedPremiumTiers: [] })
+        .onConflictDoUpdate({
+          target: userBattlePassTable.userId,
+          set: { seasonXp: sql`${userBattlePassTable.seasonXp} + ${xp}` },
+        });
+      await tx.insert(profilesTable)
+        .values({ userId, totalXp: xp })
+        .onConflictDoUpdate({
+          target: profilesTable.userId,
+          set: { totalXp: sql`${profilesTable.totalXp} + ${xp}` },
+        });
+    });
+  } catch (err) {
+    logger.error({ err, userId, xp }, "Failed to award battle pass XP");
+    throw err;
+  }
 }

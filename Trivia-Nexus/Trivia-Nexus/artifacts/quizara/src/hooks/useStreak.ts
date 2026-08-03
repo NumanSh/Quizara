@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { authFetch } from "@/lib/api";
 
 export interface StreakData {
   currentStreak: number;
@@ -18,7 +19,7 @@ export function useStreak(enabled = true) {
     if (!enabled) return;
     setLoading(true);
     try {
-      const res = await fetch("/api/streak", { credentials: "include" });
+      const res = await authFetch("/api/streak", { credentials: "include" });
       if (res.ok) setData(await res.json());
     } finally {
       setLoading(false);
@@ -28,7 +29,7 @@ export function useStreak(enabled = true) {
   useEffect(() => { fetch_(); }, [fetch_]);
 
   const checkin = useCallback(async () => {
-    const res = await fetch("/api/streak/checkin", { method: "POST", credentials: "include" });
+    const res = await authFetch("/api/streak/checkin", { method: "POST", credentials: "include" });
     if (res.ok) {
       const result = await res.json();
       setData(prev => prev ? {

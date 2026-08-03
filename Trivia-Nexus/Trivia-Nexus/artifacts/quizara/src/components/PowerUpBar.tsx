@@ -27,11 +27,12 @@ interface PowerUpBarProps {
   onUse: (itemId: string, effect: string) => void;
   disabled: boolean;
   allowedEffects?: string[];
+  currentQuestionType?: string;
 }
 
 export default function PowerUpBar({
   powerUps, usedEffects, doubleScoreRemaining, shieldActive, frozenTimer,
-  onUse, disabled, allowedEffects,
+  onUse, disabled, allowedEffects, currentQuestionType,
 }: PowerUpBarProps) {
   const visible = powerUps.filter(p =>
     p.quantity > 0 && (!allowedEffects || allowedEffects.includes(p.effect))
@@ -45,17 +46,19 @@ export default function PowerUpBar({
         const cfg = POWER_UP_CONFIG[pu.effect] ?? {
           label: pu.name, emoji: pu.emoji, description: "", color: "text-muted-foreground border-border bg-muted/20 hover:bg-muted/40"
         };
+        const isFiftyFiftyUnavailable = pu.effect === "fifty_fifty" &&
+          (currentQuestionType === "matching" || currentQuestionType === "ordering" || currentQuestionType === "hotspot");
         const isDoubleActive = pu.effect === "double_score" && doubleScoreRemaining > 0;
         const isShieldActive = pu.effect === "shield" && shieldActive;
         const isFreezeActive = pu.effect === "freeze_timer" && frozenTimer;
         const isActive = isDoubleActive || isShieldActive || isFreezeActive;
         const alreadyUsed = usedEffects.has(pu.effect) && !isDoubleActive;
-        const isDisabled = disabled || alreadyUsed || (isActive && pu.effect !== "shield" && pu.effect !== "double_score");
+        const isDisabled = disabled || alreadyUsed || isFiftyFiftyUnavailable || (isActive && pu.effect !== "shield" && pu.effect !== "double_score");
 
         return (
           <button
             key={pu.effect}
-            title={cfg.description}
+            title={isFiftyFiftyUnavailable ? "This power-up isn't available for this question type." : cfg.description}
             onClick={() => !isDisabled && onUse(pu.itemId, pu.effect)}
             disabled={isDisabled}
             className={cn(

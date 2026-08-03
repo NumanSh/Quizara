@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import type { PowerUpItem } from "./PowerUpBar";
 import { POWER_UP_CONFIG } from "./PowerUpBar";
+import { authFetch } from "@/lib/api";
 
 interface PreGamePowerUpModalProps {
   isOpen: boolean;
@@ -30,7 +31,7 @@ export default function PreGamePowerUpModal({
 
   async function fetchInventory() {
     try {
-      const res = await fetch("/api/marketplace/inventory", { credentials: "include" });
+      const res = await authFetch("/api/marketplace/inventory", { credentials: "include" });
       const data = await res.json();
       const pus = (Array.isArray(data) ? data : []).filter(
         (item: any) => item.type === "powerup" && item.quantity > 0
@@ -56,7 +57,7 @@ export default function PreGamePowerUpModal({
     });
     try {
       setLoading(true);
-      const res = await fetch("/api/powerups/watch-ad", {
+      const res = await authFetch("/api/powerups/watch-ad", {
         method: "POST", credentials: "include",
         headers: { "Content-Type": "application/json" },
       });

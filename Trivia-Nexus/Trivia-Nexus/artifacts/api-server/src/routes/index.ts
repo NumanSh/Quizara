@@ -7,6 +7,7 @@ import quizRouter from "./quiz";
 import leaderboardRouter from "./leaderboard";
 import profileRouter from "./profile";
 import adminRouter from "./admin";
+import adminEconomyRouter from "./adminEconomy";
 import marketplaceRouter from "./marketplace";
 import worldsRouter from "./worlds";
 import heartsRouter from "./hearts";
@@ -37,6 +38,7 @@ router.use(dailyTasksRouter);
 router.use(leaderboardRouter);
 router.use(profileRouter);
 router.use(adminRouter);
+router.use(adminEconomyRouter);
 router.use(marketplaceRouter);
 
 export default router;
