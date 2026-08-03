@@ -9,6 +9,7 @@ node_modules/
 # Agent / IDE internal data
 .agents/
 .gemini/
+.claude/
 .vscode/
 
 # Build outputs
