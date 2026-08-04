@@ -22,8 +22,8 @@ function triggerRewardAd() {
   if (rewardAdInjected) return;
   rewardAdInjected = true;
   const script = document.createElement("script");
-  script.dataset.zone = "11495498";
-  script.src = "https://al5sm.com/tag.min.js";
+  script.dataset.zone = "11500519";
+  script.src = "https://nap5k.com/tag.min.js";
   ([document.documentElement, document.body].filter(Boolean).pop() as HTMLElement).appendChild(script);
 }
 
@@ -141,12 +141,15 @@ export function WatchAdModal({ onComplete, onClose, bonus, coinsMode, xpMode }: 
 
               {/* CTA + timer */}
               <div className="flex items-center justify-between">
-                <div
-                  className="px-4 py-2 rounded-xl text-sm font-bold text-white cursor-default"
+                <a
+                  href="https://omg10.com/4/11500520"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-4 py-2 rounded-xl text-sm font-bold text-white cursor-pointer hover:scale-105 transition-transform"
                   style={{ background: "linear-gradient(135deg, #6366f1, #06b6d4)" }}
                 >
                   Get Premium →
-                </div>
+                </a>
                 <span className="text-white/25 text-xs font-mono tabular-nums">{timeLeft}s</span>
               </div>
             </div>

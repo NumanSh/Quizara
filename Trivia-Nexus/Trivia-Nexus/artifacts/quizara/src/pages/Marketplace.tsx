@@ -20,6 +20,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { WatchAdModal } from "@/components/WatchAdModal";
+import { MonetagBanner } from "@/components/MonetagBanner";
 import {
   FRAME_DEFS, BG_DEFS, COLOR_DEFS,
   getFrameStyle, getBgStyle, getUsernameStyle,
@@ -589,6 +590,8 @@ export default function Marketplace() {
           onClose={() => setShowCoinAd(false)}
         />
       )}
+
+      <MonetagBanner />
     </div>
   );
 }

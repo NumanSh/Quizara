@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useStreak } from "@/hooks/useStreak";
 import { useI18n } from "@/lib/i18n";
+import { MonetagBanner } from "@/components/MonetagBanner";
 
 // Scrolling banner tiles — gradient backgrounds per category
 const BANNER_TILES = [
@@ -311,6 +312,8 @@ export default function Home() {
             </div>
           </aside>
         </div>
+
+        <MonetagBanner />
 
         {/* ── How to Play ── */}
         <section className="rounded-2xl border border-white/8 bg-card/40 p-8">
