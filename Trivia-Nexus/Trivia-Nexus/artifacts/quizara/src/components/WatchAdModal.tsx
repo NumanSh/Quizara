@@ -16,21 +16,10 @@ interface WatchAdModalProps {
   xpMode?: number;
 }
 
-function triggerRewardAd() {
-  const script = document.createElement("script");
-  script.dataset.zone = "11495498";
-  script.src = "https://al5sm.com/tag.min.js";
-  ([document.documentElement, document.body].filter(Boolean).pop() as HTMLElement).appendChild(script);
-}
-
 export function WatchAdModal({ onComplete, onClose, bonus, coinsMode, xpMode }: WatchAdModalProps) {
   const [elapsed, setElapsed] = useState(0);
   const [phase, setPhase] = useState<"playing" | "earned">("playing");
   const [claiming, setClaiming] = useState(false);
-
-  useEffect(() => {
-    triggerRewardAd();
-  }, []);
 
   const canSkip = elapsed >= SKIP_AFTER;
   const progress = Math.min(100, (elapsed / AD_DURATION) * 100);
