@@ -72,12 +72,13 @@ router.get("/badges", async (req, res): Promise<void> => {
 // POST /api/badges/:id/claim — claim coin reward for an earned badge
 router.post("/badges/:id/claim", async (req, res): Promise<void> => {
   if (!req.user) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const userId = req.user.id;
   try {
     const { id } = req.params;
     const [userBadge] = await db
       .select()
       .from(userBadgesTable)
-      .where(and(eq(userBadgesTable.userId, req.user.id), eq(userBadgesTable.badgeId, id)));
+      .where(and(eq(userBadgesTable.userId, userId), eq(userBadgesTable.badgeId, id)));
 
     if (!userBadge) { res.status(404).json({ error: "Badge not earned" }); return; }
     if (userBadge.coinsClaimed) { res.status(409).json({ error: "Coins already claimed" }); return; }
@@ -85,33 +86,40 @@ router.post("/badges/:id/claim", async (req, res): Promise<void> => {
     const [badge] = await db.select().from(badgesTable).where(eq(badgesTable.id, id));
     if (!badge) { res.status(404).json({ error: "Badge not found" }); return; }
 
-    const [updatedUserBadge] = await db
-      .update(userBadgesTable)
-      .set({ coinsClaimed: true })
-      .where(and(
-        eq(userBadgesTable.id, userBadge.id),
-        eq(userBadgesTable.coinsClaimed, false)
-      ))
-      .returning();
+    // Flip the claimed flag and pay out in one transaction, so a failed coin
+    // grant can never leave the badge permanently marked as claimed.
+    let alreadyClaimed = false;
+    let totalCoins = 0;
+    await db.transaction(async (tx) => {
+      const [updatedUserBadge] = await tx
+        .update(userBadgesTable)
+        .set({ coinsClaimed: true })
+        .where(and(
+          eq(userBadgesTable.id, userBadge.id),
+          eq(userBadgesTable.coinsClaimed, false)
+        ))
+        .returning();
 
-    if (!updatedUserBadge) {
+      if (!updatedUserBadge) {
+        alreadyClaimed = true;
+        return;
+      }
+
+      const [updatedProfile] = await tx
+        .update(profilesTable)
+        .set({ coins: sql`${profilesTable.coins} + ${badge.coinReward}` })
+        .where(eq(profilesTable.userId, userId))
+        .returning({ coins: profilesTable.coins });
+
+      totalCoins = updatedProfile?.coins ?? 0;
+    });
+
+    if (alreadyClaimed) {
       res.status(409).json({ error: "Coins already claimed or badge state modified" });
       return;
     }
 
-    if (badge.coinReward > 0) {
-      await db
-        .update(profilesTable)
-        .set({ coins: sql`${profilesTable.coins} + ${badge.coinReward}` })
-        .where(eq(profilesTable.userId, req.user.id));
-    }
-
-    const [updated] = await db
-      .select({ coins: profilesTable.coins })
-      .from(profilesTable)
-      .where(eq(profilesTable.userId, req.user.id));
-
-    res.json({ coinsAwarded: badge.coinReward, totalCoins: updated?.coins ?? 0 });
+    res.json({ coinsAwarded: badge.coinReward, totalCoins });
   } catch (err) {
     req.log.error({ err }, "POST /api/badges/:id/claim failed");
     res.status(500).json({ error: "Internal error" });

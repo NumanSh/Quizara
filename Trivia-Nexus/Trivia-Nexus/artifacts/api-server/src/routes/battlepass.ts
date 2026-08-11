@@ -77,7 +77,7 @@ function getCurrentTier(xp: number): number {
 }
 
 // GET /api/battlepass
-router.get("/api/battlepass", async (req, res): Promise<void> => {
+router.get("/battlepass", async (req, res): Promise<void> => {
   if (!req.user) { res.status(401).json({ error: "Unauthorized" }); return; }
   try {
     const userId = req.user.id;
@@ -99,13 +99,14 @@ router.get("/api/battlepass", async (req, res): Promise<void> => {
       premiumCost: PREMIUM_COST,
       tiers: TIERS,
     });
-  } catch {
+  } catch (err) {
+    req.log.error({ err }, "Failed to load battle pass");
     res.status(500).json({ error: "Internal error" });
   }
 });
 
 // POST /api/battlepass/watch-ad-xp
-router.post("/api/battlepass/watch-ad-xp", async (req, res): Promise<void> => {
+router.post("/battlepass/watch-ad-xp", async (req, res): Promise<void> => {
   if (!req.user) { res.status(401).json({ error: "Unauthorized" }); return; }
   const cooldown = checkAdCooldown(req.user.id);
   if (!cooldown.allowed) {
@@ -116,13 +117,14 @@ router.post("/api/battlepass/watch-ad-xp", async (req, res): Promise<void> => {
     await awardBattlePassXp(req.user.id, AD_XP);
     const [bp] = await db.select().from(userBattlePassTable).where(eq(userBattlePassTable.userId, req.user.id));
     res.json({ xpAwarded: AD_XP, totalXp: bp?.seasonXp ?? AD_XP });
-  } catch {
+  } catch (err) {
+    req.log.error({ err }, "Failed to award battle pass ad XP");
     res.status(500).json({ error: "Internal error" });
   }
 });
 
 // POST /api/battlepass/premium
-router.post("/api/battlepass/premium", async (req, res): Promise<void> => {
+router.post("/battlepass/premium", async (req, res): Promise<void> => {
   if (!req.user) { res.status(401).json({ error: "Unauthorized" }); return; }
   try {
     const userId = req.user.id;
@@ -179,13 +181,14 @@ router.post("/api/battlepass/premium", async (req, res): Promise<void> => {
     }
 
     res.json({ isPremium: true, coinsSpent: PREMIUM_COST, remainingCoins: updatedProfile.coins });
-  } catch {
+  } catch (err) {
+    req.log.error({ err }, "Failed to purchase battle pass premium");
     res.status(500).json({ error: "Internal error" });
   }
 });
 
 // POST /api/battlepass/claim
-router.post("/api/battlepass/claim", async (req, res): Promise<void> => {
+router.post("/battlepass/claim", async (req, res): Promise<void> => {
   if (!req.user) { res.status(401).json({ error: "Unauthorized" }); return; }
   try {
     const userId = req.user.id;
@@ -242,14 +245,16 @@ router.post("/api/battlepass/claim", async (req, res): Promise<void> => {
         await tx.update(profilesTable).set({ hearts: sql`LEAST(6, ${profilesTable.hearts} + ${reward.amount ?? 1})` }).where(eq(profilesTable.userId, userId));
       } else if (reward.type === "item" && reward.effect) {
         const [item] = await tx.select().from(marketplaceItemsTable).where(eq(marketplaceItemsTable.effect, reward.effect)).limit(1);
-        if (item) {
-          await tx.insert(userInventoryTable)
-            .values({ userId, itemId: item.id, quantity: 1 })
-            .onConflictDoUpdate({
-              target: [userInventoryTable.userId, userInventoryTable.itemId],
-              set: { quantity: sql`${userInventoryTable.quantity} + 1` }
-            });
-        }
+        // No matching item means we cannot grant the reward. Roll back so the tier
+        // is not recorded as claimed for a reward the player never received.
+        if (!item) throw new Error("REWARD_UNAVAILABLE");
+
+        await tx.insert(userInventoryTable)
+          .values({ userId, itemId: item.id, quantity: 1 })
+          .onConflictDoUpdate({
+            target: [userInventoryTable.userId, userInventoryTable.itemId],
+            set: { quantity: sql`${userInventoryTable.quantity} + 1` }
+          });
       }
     });
 
@@ -259,6 +264,11 @@ router.post("/api/battlepass/claim", async (req, res): Promise<void> => {
       res.status(409).json({ error: "Reward already claimed or session modified" });
       return;
     }
+    if (err instanceof Error && err.message === "REWARD_UNAVAILABLE") {
+      res.status(503).json({ error: "This reward is temporarily unavailable. Please try again later." });
+      return;
+    }
+    req.log.error({ err }, "Failed to claim battle pass tier");
     res.status(500).json({ error: "Internal error" });
   }
 });

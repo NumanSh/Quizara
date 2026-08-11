@@ -3,11 +3,12 @@ import multer from "multer";
 import { randomUUID } from "node:crypto";
 import { db } from "@workspace/db";
 import { categoriesTable, questionsTable, profilesTable, quizSessionsTable, usersTable, settingsTable, marketplaceItemsTable } from "@workspace/db";
-import { eq, sql, desc, inArray } from "drizzle-orm";
+import { eq, sql, desc, inArray, and, ne } from "drizzle-orm";
 import { AdminCreateCategoryBody, AdminCreateQuestionBody } from "@workspace/api-zod";
 import { autoGenerateCategoryTask } from "./dailyTasks";
 import { parseWorkbookRows, validateRow, buildTemplateBuffer, type ValidatedQuestion, type RowError } from "../lib/questionImport";
 import { savePendingImport, getPendingImport, deletePendingImport } from "../lib/questionImportCache";
+import { invalidateCategoryCache } from "./categories";
 
 const router: IRouter = Router();
 
@@ -36,6 +37,17 @@ function uploadSingle(fieldName: string) {
 }
 
 const MAX_HEARTS = 6;
+
+function isSafeMediaUrl(value: string | undefined): boolean {
+  if (!value) return true;
+  if (value.startsWith("/") && !value.startsWith("//")) return true;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:";
+  } catch {
+    return false;
+  }
+}
 
 function requireAdmin(req: any, res: any): boolean {
   if (!req.isAuthenticated()) {
@@ -73,10 +85,15 @@ router.post("/admin/categories", async (req, res) => {
       res.status(400).json({ error: "Invalid request body" });
       return;
     }
+    if (!isSafeMediaUrl(parsed.data.imageUrl)) {
+      res.status(400).json({ error: "Background media URL must use HTTP(S) or a site-relative path" });
+      return;
+    }
     const [cat] = await db.insert(categoriesTable).values({
       ...parsed.data,
       nameAr: parsed.data.nameAr ?? parsed.data.name,
     }).returning();
+    invalidateCategoryCache();
     autoGenerateCategoryTask(cat.id, cat.name).catch(() => {});
     res.status(201).json({ ...cat, questionCount: 0 });
   } catch (err) {
@@ -94,11 +111,16 @@ router.put("/admin/categories/:categoryId", async (req, res) => {
       res.status(400).json({ error: "Invalid request body" });
       return;
     }
+    if (!isSafeMediaUrl(parsed.data.imageUrl)) {
+      res.status(400).json({ error: "Background media URL must use HTTP(S) or a site-relative path" });
+      return;
+    }
     const [cat] = await db.update(categoriesTable).set(parsed.data).where(eq(categoriesTable.id, categoryId)).returning();
     if (!cat) {
       res.status(404).json({ error: "Category not found" });
       return;
     }
+    invalidateCategoryCache();
     const [result] = await db.select({ count: sql<number>`count(*)` }).from(questionsTable).where(eq(questionsTable.categoryId, categoryId));
     res.json({ ...cat, questionCount: Number(result?.count ?? 0) });
   } catch (err) {
@@ -112,6 +134,7 @@ router.delete("/admin/categories/:categoryId", async (req, res) => {
   try {
     const { categoryId } = req.params;
     await db.delete(categoriesTable).where(eq(categoriesTable.id, categoryId));
+    invalidateCategoryCache();
     res.json({ success: true });
   } catch (err) {
     req.log.error({ err }, "Failed to delete category");
@@ -169,6 +192,20 @@ router.post("/admin/questions", async (req, res) => {
       return;
     }
     const pd = parsed.data as any;
+
+    const [existing] = await db
+      .select({ id: questionsTable.id })
+      .from(questionsTable)
+      .where(and(
+        eq(questionsTable.categoryId, pd.categoryId),
+        sql`lower(trim(${questionsTable.question})) = ${pd.question.trim().toLowerCase()}`,
+      ))
+      .limit(1);
+    if (existing) {
+      res.status(409).json({ error: "A question with this text already exists in this category" });
+      return;
+    }
+
     const [q] = await db.insert(questionsTable).values({
       categoryId: pd.categoryId,
       questionType: pd.questionType ?? "multiple_choice",
@@ -182,6 +219,7 @@ router.post("/admin/questions", async (req, res) => {
       explanationAr: parsed.data.explanationAr,
       difficulty: parsed.data.difficulty ?? 1,
     }).returning();
+    invalidateCategoryCache();
     res.status(201).json({
       id: q.id,
       categoryId: q.categoryId,
@@ -212,6 +250,21 @@ router.put("/admin/questions/:questionId", async (req, res) => {
       return;
     }
     const pd2 = parsed.data as any;
+
+    const [existing] = await db
+      .select({ id: questionsTable.id })
+      .from(questionsTable)
+      .where(and(
+        eq(questionsTable.categoryId, pd2.categoryId),
+        ne(questionsTable.id, questionId),
+        sql`lower(trim(${questionsTable.question})) = ${pd2.question.trim().toLowerCase()}`,
+      ))
+      .limit(1);
+    if (existing) {
+      res.status(409).json({ error: "A question with this text already exists in this category" });
+      return;
+    }
+
     const [q] = await db.update(questionsTable).set({
       categoryId: pd2.categoryId,
       questionType: pd2.questionType ?? "multiple_choice",
@@ -229,6 +282,7 @@ router.put("/admin/questions/:questionId", async (req, res) => {
       res.status(404).json({ error: "Question not found" });
       return;
     }
+    invalidateCategoryCache();
     res.json({
       id: q.id,
       categoryId: q.categoryId,
@@ -254,6 +308,7 @@ router.delete("/admin/questions/:questionId", async (req, res) => {
   try {
     const { questionId } = req.params;
     await db.delete(questionsTable).where(eq(questionsTable.id, questionId));
+    invalidateCategoryCache();
     res.json({ success: true });
   } catch (err) {
     req.log.error({ err }, "Failed to delete question");
@@ -490,6 +545,7 @@ router.post("/admin/questions/import/commit", async (req, res) => {
     });
 
     deletePendingImport(importId);
+    invalidateCategoryCache();
     res.json({ success: true, categoriesCreated, questionsImported });
   } catch (err) {
     req.log.error({ err }, "Failed to commit question import");
@@ -504,6 +560,17 @@ router.get("/admin/users", async (req, res) => {
     const limit = Math.min(Number(req.query.limit ?? 50), 200);
     const offset = Number(req.query.offset ?? 0);
     const search = (req.query.search as string | undefined)?.trim() ?? "";
+
+    // The search predicate must live in SQL: filtering after LIMIT/OFFSET would
+    // only ever search the current page, and would make `total` disagree with it.
+    const searchFilter = search
+      ? sql`(
+          ${usersTable.email} ILIKE ${`%${search}%`}
+          OR ${usersTable.firstName} ILIKE ${`%${search}%`}
+          OR ${usersTable.lastName} ILIKE ${`%${search}%`}
+          OR ${profilesTable.username} ILIKE ${`%${search}%`}
+        )`
+      : undefined;
 
     const rows = await db
       .select({
@@ -523,21 +590,19 @@ router.get("/admin/users", async (req, res) => {
       })
       .from(usersTable)
       .leftJoin(profilesTable, eq(profilesTable.userId, usersTable.id))
+      .where(searchFilter)
       .orderBy(desc(usersTable.createdAt))
       .limit(limit)
       .offset(offset);
 
-    const [totalResult] = await db.select({ count: sql<number>`count(*)` }).from(usersTable);
-
-    const filtered = search
-      ? rows.filter(u =>
-          [u.email, u.firstName, u.lastName, u.username]
-            .some(v => v?.toLowerCase().includes(search.toLowerCase()))
-        )
-      : rows;
+    const [totalResult] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(usersTable)
+      .leftJoin(profilesTable, eq(profilesTable.userId, usersTable.id))
+      .where(searchFilter);
 
     res.json({
-      users: filtered.map(u => ({
+      users: rows.map(u => ({
         id: u.id,
         email: u.email ?? null,
         firstName: u.firstName ?? null,
@@ -570,17 +635,14 @@ router.post("/admin/users/:userId/points", async (req, res) => {
       res.status(400).json({ error: "points must be a finite number" });
       return;
     }
-    const existing = await db.select().from(profilesTable).where(eq(profilesTable.userId, userId));
-    let updatedProfile;
-    if (existing.length === 0) {
-      [updatedProfile] = await db.insert(profilesTable).values({ userId, totalScore: Math.max(0, points) }).returning();
-    } else {
-      const newScore = Math.max(0, (existing[0].totalScore ?? 0) + points);
-      [updatedProfile] = await db.update(profilesTable)
-        .set({ totalScore: newScore })
-        .where(eq(profilesTable.userId, userId))
-        .returning();
-    }
+    // Applied as a relative delta so a concurrent score change is not overwritten.
+    const [updatedProfile] = await db.insert(profilesTable)
+      .values({ userId, totalScore: Math.max(0, points) })
+      .onConflictDoUpdate({
+        target: profilesTable.userId,
+        set: { totalScore: sql`GREATEST(0, ${profilesTable.totalScore} + ${points})` },
+      })
+      .returning();
     res.json({ userId, totalScore: updatedProfile?.totalScore ?? 0 });
   } catch (err) {
     req.log.error({ err }, "Failed to adjust user points");
@@ -597,17 +659,14 @@ router.post("/admin/users/:userId/coins", async (req, res) => {
       res.status(400).json({ error: "coins must be a finite number" });
       return;
     }
-    const existing = await db.select().from(profilesTable).where(eq(profilesTable.userId, userId));
-    let updatedProfile;
-    if (existing.length === 0) {
-      [updatedProfile] = await db.insert(profilesTable).values({ userId, coins: Math.max(0, coins) }).returning();
-    } else {
-      const newCoins = Math.max(0, (existing[0].coins ?? 0) + coins);
-      [updatedProfile] = await db.update(profilesTable)
-        .set({ coins: newCoins })
-        .where(eq(profilesTable.userId, userId))
-        .returning();
-    }
+    // Applied as a relative delta so a concurrent coin change is not overwritten.
+    const [updatedProfile] = await db.insert(profilesTable)
+      .values({ userId, coins: Math.max(0, coins) })
+      .onConflictDoUpdate({
+        target: profilesTable.userId,
+        set: { coins: sql`GREATEST(0, ${profilesTable.coins} + ${coins})` },
+      })
+      .returning();
     res.json({ userId, coins: updatedProfile?.coins ?? 0 });
   } catch (err) {
     req.log.error({ err }, "Failed to adjust user coins");
@@ -624,20 +683,19 @@ router.post("/admin/users/:userId/hearts", async (req, res) => {
       res.status(400).json({ error: "hearts must be an integer" });
       return;
     }
-    const existing = await db.select().from(profilesTable).where(eq(profilesTable.userId, userId));
+    // Applied as a relative delta, clamped to [0, MAX_HEARTS] in SQL so a
+    // concurrent heart change is not overwritten.
     const now = new Date();
-    let updatedProfile;
-    if (existing.length === 0) {
-      const newHearts = Math.max(0, Math.min(MAX_HEARTS, hearts));
-      [updatedProfile] = await db.insert(profilesTable).values({ userId, hearts: newHearts, heartsLastUpdated: now }).returning();
-    } else {
-      const current = existing[0].hearts ?? MAX_HEARTS;
-      const newHearts = Math.max(0, Math.min(MAX_HEARTS, current + hearts));
-      [updatedProfile] = await db.update(profilesTable)
-        .set({ hearts: newHearts, heartsLastUpdated: now })
-        .where(eq(profilesTable.userId, userId))
-        .returning();
-    }
+    const [updatedProfile] = await db.insert(profilesTable)
+      .values({ userId, hearts: Math.max(0, Math.min(MAX_HEARTS, hearts)), heartsLastUpdated: now })
+      .onConflictDoUpdate({
+        target: profilesTable.userId,
+        set: {
+          hearts: sql`GREATEST(0, LEAST(${MAX_HEARTS}, ${profilesTable.hearts} + ${hearts}))`,
+          heartsLastUpdated: now,
+        },
+      })
+      .returning();
     res.json({ userId, hearts: updatedProfile?.hearts ?? 0 });
   } catch (err) {
     req.log.error({ err }, "Failed to adjust user hearts");

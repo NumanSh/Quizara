@@ -1,12 +1,13 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
-import { questionsTable, quizSessionsTable, profilesTable, categoriesTable, marketplaceItemsTable, userInventoryTable } from "@workspace/db";
+import { questionsTable, quizSessionsTable, profilesTable, categoriesTable } from "@workspace/db";
 import { eq, and, sql } from "drizzle-orm";
 import { StartQuizBody, SubmitAnswerBody } from "@workspace/api-zod";
 import { awardBattlePassXp } from "./xpHelper";
 import { checkAndAwardBadges } from "./badgeChecker";
-import { updateDailyTaskProgress } from "./dailyTasks";
+import { trackDailyTaskProgress } from "./dailyTasks";
 import { getRatesForMode } from "../lib/economyConfig";
+import { consumePowerUpItem } from "../lib/powerUps";
 
 const router: IRouter = Router();
 
@@ -118,6 +119,7 @@ router.post("/quiz/start", async (req, res) => {
       categoryName: cat?.name ?? categoryId,
       status: "active",
       score: 0,
+      correctAnswers: 0,
       questionNumber: 1,
       totalQuestions: questionIds.length,
       currentQuestion: firstQ ? buildQuestionPayload(firstQ, 1, questionIds.length) : null,
@@ -152,6 +154,7 @@ router.get("/quiz/:sessionId", async (req, res) => {
       categoryName: cat?.name ?? session.categoryId,
       status: session.status,
       score: session.score,
+      correctAnswers: session.correctAnswers,
       questionNumber: currentIdx + 1,
       totalQuestions: session.totalQuestions,
       currentQuestion,
@@ -212,66 +215,34 @@ router.post("/quiz/:sessionId/answer", async (req, res) => {
     const correct = scoreAnswer(question, selectedAnswer, answerData);
     const rates = await getRatesForMode("quiz");
 
-    let doubleScore = false;
-    if (req.body.doubleScore === true && correct) {
-      if (session.userId) {
-        const doubleScoreItemId = req.body.doubleScoreItemId;
-        if (!doubleScoreItemId || typeof doubleScoreItemId !== "string") {
-          res.status(400).json({ error: "doubleScoreItemId is required to apply double score" });
-          return;
-        }
+    // Guests have no inventory to validate a power-up against, so no double score for them.
+    const wantsDoubleScore = req.body.doubleScore === true && correct && !!session.userId;
 
-        const [item] = await db.select().from(marketplaceItemsTable).where(eq(marketplaceItemsTable.id, doubleScoreItemId));
-        if (!item || item.type !== "powerup" || item.effect !== "double_score") {
-          res.status(400).json({ error: "Invalid double score power-up item" });
-          return;
-        }
-
-        const [entry] = await db.select().from(userInventoryTable)
-          .where(and(eq(userInventoryTable.userId, session.userId), eq(userInventoryTable.itemId, doubleScoreItemId)));
-
-        if (!entry || entry.quantity < 1) {
-          res.status(400).json({ error: "Double score power-up not in inventory" });
-          return;
-        }
-
-        if (entry.quantity === 1) {
-          const [deleted] = await db.delete(userInventoryTable)
-            .where(and(
-              eq(userInventoryTable.id, entry.id),
-              eq(userInventoryTable.quantity, 1)
-            ))
-            .returning();
-          if (!deleted) {
-            res.status(409).json({ error: "Inventory updated concurrently, try again" });
-            return;
-          }
-        } else {
-          const [updated] = await db.update(userInventoryTable)
-            .set({ quantity: entry.quantity - 1 })
-            .where(and(
-              eq(userInventoryTable.id, entry.id),
-              eq(userInventoryTable.quantity, entry.quantity)
-            ))
-            .returning();
-          if (!updated) {
-            res.status(409).json({ error: "Inventory updated concurrently, try again" });
-            return;
-          }
-        }
-        doubleScore = true;
-      }
-      // Guests have no inventory to validate a power-up against, so no double score for them
-    }
-
-    const pointsEarned = correct ? (doubleScore ? rates.scorePerCorrect * 2 : rates.scorePerCorrect) : 0;
-    const newScore = session.score + pointsEarned;
     const newCorrect = session.correctAnswers + (correct ? 1 : 0);
     const newIdx = currentIdx + 1;
     const isLastQuestion = newIdx >= questionIds.length;
 
     let sessionUpdateFailed = false;
+    let powerUpError: { status: number; error: string } | null = null;
+    let doubleScoreApplied = false;
+    let pointsEarned = correct ? rates.scorePerCorrect : 0;
+    let newScore = session.score + pointsEarned;
+
     await db.transaction(async (tx) => {
+      // Consumed inside the transaction: if the session update below loses the
+      // concurrency check, the rollback puts the power-up back in the inventory.
+      if (wantsDoubleScore) {
+        const consumed = await consumePowerUpItem(session.userId!, req.body.doubleScoreItemId, "double_score", tx);
+        if (!consumed.ok) {
+          powerUpError = { status: consumed.status, error: consumed.error };
+          tx.rollback();
+          return;
+        }
+        doubleScoreApplied = true;
+        pointsEarned = rates.scorePerCorrect * 2;
+        newScore = session.score + pointsEarned;
+      }
+
       const [updatedSession] = await tx.update(quizSessionsTable).set({
         score: newScore,
         correctAnswers: newCorrect,
@@ -284,6 +255,7 @@ router.post("/quiz/:sessionId/answer", async (req, res) => {
 
       if (!updatedSession) {
         sessionUpdateFailed = true;
+        tx.rollback();
         return;
       }
 
@@ -297,7 +269,15 @@ router.post("/quiz/:sessionId/answer", async (req, res) => {
           bestScore: sql`GREATEST(${profilesTable.bestScore}, ${newScore})`,
         }).where(eq(profilesTable.userId, session.userId));
       }
+    }).catch(err => {
+      if (!sessionUpdateFailed && !powerUpError) throw err;
     });
+
+    if (powerUpError) {
+      const { status, error } = powerUpError as { status: number; error: string };
+      res.status(status).json({ error });
+      return;
+    }
 
     if (sessionUpdateFailed) {
       res.status(409).json({ error: "Answer already submitted for this question" });
@@ -322,12 +302,12 @@ router.post("/quiz/:sessionId/answer", async (req, res) => {
 
     // Update daily task progress on quiz completion
     if (isLastQuestion && session.userId) {
-      updateDailyTaskProgress(session.userId, {
+      trackDailyTaskProgress(session.userId, {
         categoryId: session.categoryId,
         score: newScore,
         correctAnswers: newCorrect,
         totalQuestions: questionIds.length,
-      }).catch(() => {});
+      });
     }
 
     // Check badges
@@ -371,6 +351,7 @@ router.post("/quiz/:sessionId/answer", async (req, res) => {
       nextQuestion,
       sessionScore: newScore,
       isLastQuestion,
+      doubleScoreApplied,
     });
   } catch (err) {
     req.log.error({ err }, "Failed to submit answer");
@@ -391,6 +372,24 @@ router.post("/quiz/:sessionId/complete", async (req, res) => {
       ? Math.round((session.completedAt.getTime() - session.startedAt.getTime()) / 1000)
       : 0;
 
+    // Global all-time rank of the player who owns this session. Guests have no
+    // profile to rank, so it stays null for them.
+    let rank: number | null = null;
+    if (session.userId) {
+      const [me] = await db
+        .select({ totalScore: profilesTable.totalScore })
+        .from(profilesTable)
+        .where(eq(profilesTable.userId, session.userId));
+
+      if (me) {
+        const [ahead] = await db
+          .select({ count: sql<number>`count(*)` })
+          .from(profilesTable)
+          .where(sql`${profilesTable.totalScore} > ${me.totalScore}`);
+        rank = Number(ahead?.count ?? 0) + 1;
+      }
+    }
+
     res.json({
       sessionId: session.id,
       score: session.score,
@@ -398,7 +397,7 @@ router.post("/quiz/:sessionId/complete", async (req, res) => {
       correctAnswers: session.correctAnswers,
       timeTaken,
       categoryName: cat?.name ?? session.categoryId,
-      rank: null,
+      rank,
     });
   } catch (err) {
     req.log.error({ err }, "Failed to complete quiz");

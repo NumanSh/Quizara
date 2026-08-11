@@ -61,7 +61,10 @@ export async function checkAndAwardBadges(userId: string, ctx: BadgeCheckContext
           qualified = ctx.streakDays !== undefined && ctx.streakDays >= (badge.triggerValue ?? 7);
           break;
         case "first_arena_win":
-          qualified = ctx.arenaWin === true && (arenaStats?.wins ?? 0) === 1;
+          // `>= 1`, not `=== 1`: the badge is only ever checked for players who
+          // have not earned it, so an exact match would permanently lock out
+          // anyone who already had wins when the badge was created or activated.
+          qualified = ctx.arenaWin === true && (arenaStats?.wins ?? 0) >= 1;
           break;
         case "total_arena_wins":
           qualified = (arenaStats?.wins ?? 0) >= (badge.triggerValue ?? 1);

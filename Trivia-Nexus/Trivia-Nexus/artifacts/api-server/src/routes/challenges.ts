@@ -167,6 +167,7 @@ router.post("/challenges/:code/start", async (req, res): Promise<void> => {
       categoryName: cat?.name ?? challenge.categoryId,
       status: "active",
       score: 0,
+      correctAnswers: 0,
       questionNumber: 1,
       totalQuestions: questionIds.length,
       currentQuestion: firstQ ? buildQuestionPayload(firstQ, 1, questionIds.length) : null,

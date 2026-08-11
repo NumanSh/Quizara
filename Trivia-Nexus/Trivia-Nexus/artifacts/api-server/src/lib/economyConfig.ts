@@ -33,9 +33,13 @@ async function ensureSeeded(): Promise<void> {
 }
 
 const cache = new Map<string, number>();
+// Modes whose rates are fully loaded in `cache`, so `getRatesForMode` can be
+// served without a query. Cleared together with `cache` on any rate change.
+const cachedModes = new Set<string>();
 
 export function invalidateEconomyCache(): void {
   cache.clear();
+  cachedModes.clear();
 }
 
 export async function getRate(mode: string, metric: string): Promise<number> {
@@ -55,14 +59,37 @@ export async function getRate(mode: string, metric: string): Promise<number> {
   return value;
 }
 
+/**
+ * Called on every scored answer in every mode, so it is served from the
+ * in-process cache after the first load — without this it was one extra query
+ * per answer submission.
+ *
+ * Note the cache is per-process: `setRates` only invalidates the instance that
+ * handled the write, so other instances serve stale rates until restart.
+ */
 export async function getRatesForMode(mode: string): Promise<Record<string, number>> {
+  const defaults = ECONOMY_DEFAULTS[mode] ?? {};
+
+  if (cachedModes.has(mode)) {
+    const cached: Record<string, number> = { ...defaults };
+    for (const [key, value] of cache) {
+      const sep = key.indexOf(":");
+      if (key.slice(0, sep) === mode) cached[key.slice(sep + 1)] = value;
+    }
+    return cached;
+  }
+
   await ensureSeeded();
   const rows = await db.select().from(economyRatesTable).where(eq(economyRatesTable.mode, mode));
-  const result: Record<string, number> = { ...(ECONOMY_DEFAULTS[mode] ?? {}) };
+  const result: Record<string, number> = { ...defaults };
   for (const row of rows) {
     result[row.metric] = row.value;
     cache.set(`${mode}:${row.metric}`, row.value);
   }
+  // Only mark the mode cached once rows actually came back. If seeding failed,
+  // `rows` is empty and we fall back to defaults — caching that would pin the
+  // process to defaults forever instead of retrying once the DB recovers.
+  if (rows.length > 0) cachedModes.add(mode);
   return result;
 }
 

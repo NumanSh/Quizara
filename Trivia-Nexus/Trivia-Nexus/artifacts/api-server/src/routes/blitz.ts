@@ -9,6 +9,8 @@ import {
 import { eq, sql, and, inArray } from "drizzle-orm";
 import { awardBattlePassXp } from "./xpHelper";
 import { getRatesForMode } from "../lib/economyConfig";
+import { consumePowerUpItem } from "../lib/powerUps";
+import { trackDailyTaskProgress } from "./dailyTasks";
 
 const router: IRouter = Router();
 
@@ -51,6 +53,14 @@ async function completeAttempt(attemptId: string, userId: string, correctCount: 
     const rates = await getRatesForMode("blitz");
     const xp = Math.max(correctCount * rates.xpPerCorrectOnComplete, rates.xpCompleteMinimum);
     await awardBattlePassXp(userId, xp).catch(() => {});
+
+    // Blitz draws from a mixed daily pool, so it has no single category.
+    trackDailyTaskProgress(userId, {
+      categoryId: "",
+      score: updated.pointsEarned,
+      correctAnswers: updated.correctCount,
+      totalQuestions: (updated.questionIds as string[]).length,
+    });
   }
 }
 
@@ -206,7 +216,12 @@ router.post("/blitz/:attemptId/answer", async (req, res) => {
     }
     const user = (req as any).user;
     const { attemptId } = req.params;
-    const { questionId, selectedAnswer } = req.body as { questionId?: string; selectedAnswer?: number };
+    const { questionId, selectedAnswer, doubleScore, doubleScoreItemId } = req.body as {
+      questionId?: string;
+      selectedAnswer?: number;
+      doubleScore?: boolean;
+      doubleScoreItemId?: string;
+    };
 
     if (!questionId || selectedAnswer === undefined) {
       res.status(400).json({ error: "questionId and selectedAnswer are required" });
@@ -244,11 +259,30 @@ router.post("/blitz/:attemptId/answer", async (req, res) => {
     const isCorrect = selectedAnswer === question.correctAnswer;
     const diff = question.difficulty ?? 1;
     const rates = await getRatesForMode("blitz");
+
+    const wantsDoubleScore = doubleScore === true && isCorrect;
     const coinsThisAnswer = isCorrect ? diff * rates.coinsPerCorrectBase : 0;
-    const pointsThisAnswer = isCorrect ? diff * rates.scorePerCorrectBase : 0;
+    const basePoints = isCorrect ? diff * rates.scorePerCorrectBase : 0;
 
     let transactionFailed = false;
+    let powerUpError: { status: number; error: string } | null = null;
+    let doubleScoreApplied = false;
+    let pointsThisAnswer = basePoints;
+
     await db.transaction(async (tx) => {
+      // Consumed inside the transaction: if the attempt update below loses the
+      // concurrency check, the rollback puts the power-up back in the inventory.
+      if (wantsDoubleScore) {
+        const consumed = await consumePowerUpItem(user.id, doubleScoreItemId, "double_score", tx);
+        if (!consumed.ok) {
+          powerUpError = { status: consumed.status, error: consumed.error };
+          tx.rollback();
+          return;
+        }
+        doubleScoreApplied = true;
+        pointsThisAnswer = basePoints * 2;
+      }
+
       const [updatedAttempt] = await tx.update(userBlitzAttemptsTable).set({
         answeredCount: sql`${userBlitzAttemptsTable.answeredCount} + 1`,
         correctCount: sql`${userBlitzAttemptsTable.correctCount} + ${isCorrect ? 1 : 0}`,
@@ -273,15 +307,21 @@ router.post("/blitz/:attemptId/answer", async (req, res) => {
         }).where(eq(profilesTable.userId, user.id));
       }
     }).catch(err => {
-      if (!transactionFailed) throw err;
+      if (!transactionFailed && !powerUpError) throw err;
     });
+
+    if (powerUpError) {
+      const { status, error } = powerUpError as { status: number; error: string };
+      res.status(status).json({ error });
+      return;
+    }
 
     if (transactionFailed) {
       res.status(409).json({ error: "Answer already submitted or session modified" });
       return;
     }
 
-    res.json({ isCorrect, correctAnswer: question.correctAnswer, coinsEarned: coinsThisAnswer, pointsEarned: pointsThisAnswer });
+    res.json({ isCorrect, correctAnswer: question.correctAnswer, coinsEarned: coinsThisAnswer, pointsEarned: pointsThisAnswer, doubleScoreApplied });
   } catch (err) {
     req.log.error({ err }, "Failed to submit blitz answer");
     res.status(500).json({ error: "Internal server error" });

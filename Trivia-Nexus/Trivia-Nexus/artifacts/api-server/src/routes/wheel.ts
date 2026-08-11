@@ -18,26 +18,39 @@ interface Segment {
   color: string;
 }
 
-// Segment structure (id/label/emoji/weight/color) is fixed; only the coin/XP `amount`
+// Segment structure (id/emoji/weight/color) is fixed; only the coin/XP `amount`
 // values are admin-configurable (heart/powerup amounts stay out of the 3-currency scope).
-const SEGMENT_STRUCTURE: Omit<Segment, "amount">[] = [
-  { id: "coins_50",  label: "50 Coins",    emoji: "🪙", type: "coins",   weight: 30, color: "#F59E0B" },
-  { id: "coins_100", label: "100 Coins",   emoji: "🪙", type: "coins",   weight: 20, color: "#EAB308" },
-  { id: "heart_1",   label: "1 Heart",     emoji: "❤️",  type: "heart",   weight: 20, color: "#EF4444" },
-  { id: "coins_200", label: "200 Coins",   emoji: "🪙", type: "coins",   weight: 10, color: "#D97706" },
-  { id: "heart_2",   label: "2 Hearts",    emoji: "❤️",  type: "heart",   weight: 10, color: "#EC4899" },
-  { id: "powerup",   label: "Power-Up!",   emoji: "⚡", type: "powerup", weight: 5,  color: "#8B5CF6" },
-  { id: "xp_100",    label: "+100 XP",     emoji: "⭐", type: "xp",      weight: 4,  color: "#3B82F6" },
-  { id: "jackpot",   label: "JACKPOT!",    emoji: "🏆", type: "jackpot", weight: 1,  color: "#10B981" },
+// Labels are DERIVED from the live amount — never hardcoded — so raising
+// `coins_50` in the admin economy panel cannot leave the wheel face promising
+// "50 Coins" while paying out something else.
+const SEGMENT_STRUCTURE: Omit<Segment, "amount" | "label">[] = [
+  { id: "coins_50",  emoji: "🪙", type: "coins",   weight: 30, color: "#F59E0B" },
+  { id: "coins_100", emoji: "🪙", type: "coins",   weight: 20, color: "#EAB308" },
+  { id: "heart_1",   emoji: "❤️",  type: "heart",   weight: 20, color: "#EF4444" },
+  { id: "coins_200", emoji: "🪙", type: "coins",   weight: 10, color: "#D97706" },
+  { id: "heart_2",   emoji: "❤️",  type: "heart",   weight: 10, color: "#EC4899" },
+  { id: "powerup",   emoji: "⚡", type: "powerup", weight: 5,  color: "#8B5CF6" },
+  { id: "xp_100",    emoji: "⭐", type: "xp",      weight: 4,  color: "#3B82F6" },
+  { id: "jackpot",   emoji: "🏆", type: "jackpot", weight: 1,  color: "#10B981" },
 ];
 const STATIC_AMOUNTS: Record<string, number> = { heart_1: 1, heart_2: 2, powerup: 1 };
 
+function segmentLabel(type: Segment["type"], amount: number): string {
+  switch (type) {
+    case "coins":   return `${amount} Coins`;
+    case "jackpot": return `JACKPOT! ${amount} Coins`;
+    case "heart":   return amount === 1 ? "1 Heart" : `${amount} Hearts`;
+    case "xp":      return `+${amount} XP`;
+    case "powerup": return "Power-Up!";
+  }
+}
+
 async function getWheelSegments(): Promise<Segment[]> {
   const rates = await getRatesForMode("wheel");
-  return SEGMENT_STRUCTURE.map(s => ({
-    ...s,
-    amount: STATIC_AMOUNTS[s.id] ?? rates[s.id] ?? 0,
-  }));
+  return SEGMENT_STRUCTURE.map(s => {
+    const amount = STATIC_AMOUNTS[s.id] ?? rates[s.id] ?? 0;
+    return { ...s, amount, label: segmentLabel(s.type, amount) };
+  });
 }
 
 function pickSegment(segments: Segment[]): Segment {
@@ -136,14 +149,20 @@ router.post("/wheel/spin", async (req, res): Promise<void> => {
       }
     }
 
-    const { updatedProfile, newCoins, newHearts } = await db.transaction(async (tx) => {
-      const newHearts = Math.min(6, (profile.hearts ?? 0) + heartsGained);
-      const newCoins = (profile.coins ?? 0) + coinsGained;
+    const { newCoins, newHearts } = await db.transaction(async (tx) => {
+      // Coins and hearts are written as relative deltas, never as absolute values
+      // computed from the read above — otherwise a reward or purchase landing
+      // between the read and this write would be silently overwritten.
       const updateData: Record<string, any> = {
-        coins: newCoins,
-        hearts: newHearts,
+        coins: sql`${profilesTable.coins} + ${coinsGained}`,
         lastWheelDate: today,
       };
+      if (heartsGained > 0) {
+        updateData.hearts = sql`LEAST(6, ${profilesTable.hearts} + ${heartsGained})`;
+        // Granting a heart must also restart the refill clock, otherwise the
+        // regen timer in /hearts is computed against a stale timestamp.
+        updateData.heartsLastUpdated = new Date();
+      }
       if (hasUsedFreeSpinToday) {
         updateData.extraWheelSpins = Math.max(0, extraSpins - 1);
       }
@@ -172,7 +191,7 @@ router.post("/wheel/spin", async (req, res): Promise<void> => {
           });
       }
 
-      return { updatedProfile: upProfile, newCoins, newHearts };
+      return { newCoins: upProfile.coins, newHearts: upProfile.hearts };
     });
 
     if (xpGained > 0) {

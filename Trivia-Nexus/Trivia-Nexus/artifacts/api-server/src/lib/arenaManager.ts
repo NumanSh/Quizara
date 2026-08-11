@@ -1,12 +1,13 @@
 import { type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { db, questionsTable, categoriesTable, arenaStatsTable, userInventoryTable, marketplaceItemsTable, profilesTable, usersTable } from "@workspace/db";
-import { eq, sql, and } from "drizzle-orm";
+import { eq, sql, and, inArray } from "drizzle-orm";
 import { logger } from "./logger";
 import { checkAndAwardBadges } from "../routes/badgeChecker";
 import { supabase } from "./supabase";
 import { getRatesForMode } from "./economyConfig";
 import { awardBattlePassXp } from "../routes/xpHelper";
+import { trackDailyTaskProgress } from "../routes/dailyTasks";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -262,6 +263,18 @@ async function startCategorySelection(room: ArenaRoom) {
 
 // ─── Game ─────────────────────────────────────────────────────────────────────
 
+/**
+ * Question types the Arena client can actually answer.
+ *
+ * The Arena UI only renders tappable options and only ever sends
+ * `selectedAnswer: <index>` — it never sends `answerData`. Ordering, matching,
+ * hotspot and fill_blank need `answerData`, so if one is drawn every player is
+ * scored wrong on it. They are excluded from the pool rather than rendered
+ * unanswerably. (These types also ship their own answer inside `options`, which
+ * `shuffleQuestion` cannot mask, so excluding them closes that leak in Arena too.)
+ */
+const ARENA_QUESTION_TYPES = ["multiple_choice", "true_false", "image", "audio"];
+
 async function startGame(room: ArenaRoom) {
   const allCatIds = new Set<string>();
   room.categoriesSelected.forEach(cats => cats.forEach(c => allCatIds.add(c)));
@@ -271,7 +284,10 @@ async function startGame(room: ArenaRoom) {
   const perCat = Math.ceil(room.questionCount / Math.max(categoryIds.length, 1));
 
   for (const catId of categoryIds) {
-    const qs = await db.select().from(questionsTable).where(eq(questionsTable.categoryId, catId)).limit(perCat + 5);
+    const qs = await db.select().from(questionsTable).where(and(
+      eq(questionsTable.categoryId, catId),
+      inArray(questionsTable.questionType, ARENA_QUESTION_TYPES),
+    )).limit(perCat + 5);
     if (!rooms.has(room.id)) return;
     const shuffled = qs.sort(() => Math.random() - 0.5).slice(0, perCat);
     shuffled.forEach(q => {
@@ -288,6 +304,17 @@ async function startGame(room: ArenaRoom) {
 
   if (!rooms.has(room.id)) return;
   const questions = questionsPool.sort(() => Math.random() - 0.5).slice(0, room.questionCount);
+
+  // With no playable questions the game would start and immediately end as a
+  // 0-0 draw, persisting a meaningless result. Fail loudly instead — this is
+  // reachable when the chosen categories only hold question types Arena
+  // excludes (see ARENA_QUESTION_TYPES), or hold no questions at all.
+  if (questions.length === 0) {
+    throw new Error(
+      `No Arena-playable questions in categories: ${categoryIds.join(", ") || "(none selected)"}`,
+    );
+  }
+
   room.questions = questions;
   room.phase = "game";
   room.scores = new Map(room.players.map(p => [p.userId, 0]));
@@ -439,6 +466,19 @@ function handleAnswer(room: ArenaRoom, player: ArenaPlayer, questionIndex: numbe
   }
 }
 
+/**
+ * Tears a room down without recording a result. Used when a room can never
+ * become playable (e.g. no eligible questions), so the players are not left
+ * registered in `playerToRoom`, which would block them from ever re-queueing.
+ */
+function closeRoom(room: ArenaRoom) {
+  room.phase = "ended";
+  if (room.questionTimer) { clearTimeout(room.questionTimer); room.questionTimer = null; }
+  rooms.delete(room.id);
+  if (room.code) friendRoomsByCode.delete(room.code);
+  room.players.forEach(p => playerToRoom.delete(p.userId));
+}
+
 function endGame(room: ArenaRoom) {
   if (room.phase === "ended") return;
   room.phase = "ended";
@@ -504,6 +544,8 @@ async function persistGameResult(
   };
   await Promise.all([upsert(userId1, score1, winner === userId1), upsert(userId2, score2, winner === userId2)]);
 
+  trackArenaDailyTasks([{ userId: userId1, score: score1 }, { userId: userId2, score: score2 }]);
+
   // Coins/score/XP economy applies only to random-matchmaking games — friends-room
   // matches (any size, including a friend-created 1v1) are coin-neutral by design.
   if (!isFriendsRoom && !isDraw && winner) {
@@ -536,6 +578,23 @@ async function persistGameResult(
   }
 }
 
+/**
+ * Advances daily-task progress for every non-guest participant of a finished match.
+ * Arena questions are drawn across the categories the players picked, so there is
+ * no single category to attribute — only category-agnostic task types apply.
+ */
+function trackArenaDailyTasks(participants: { userId: string; score: number }[]) {
+  for (const { userId, score } of participants) {
+    if (userId.startsWith("guest_")) continue;
+    trackDailyTaskProgress(userId, {
+      categoryId: "",
+      score,
+      correctAnswers: 0,
+      totalQuestions: 0,
+    });
+  }
+}
+
 async function persistMultiGameResult(room: ArenaRoom, winner: string | null) {
   const isDraw = winner === null;
   await Promise.all(room.players.map(p => {
@@ -558,6 +617,9 @@ async function persistMultiGameResult(room: ArenaRoom, winner: string | null) {
       },
     });
   }));
+
+  trackArenaDailyTasks(room.players.map(p => ({ userId: p.userId, score: room.scores.get(p.userId) ?? 0 })));
+
   // Check arena badges after stats are persisted
   if (winner && !winner.startsWith("guest_")) {
     checkAndAwardBadges(winner, { arenaWin: true }).catch(() => {});
@@ -638,6 +700,9 @@ function handleMessage(player: ArenaPlayer, raw: string) {
       startGame(room).catch(err => {
         logger.error({ err }, "Failed to start arena game");
         sendAll(room, { type: "ERROR", message: "Failed to start game" });
+        // Release the room instead of stranding it in "game_loading" — players
+        // stuck in `playerToRoom` can never queue or create a room again.
+        closeRoom(room);
       });
     }
     return;

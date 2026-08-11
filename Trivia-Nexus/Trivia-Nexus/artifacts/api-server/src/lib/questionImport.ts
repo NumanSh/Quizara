@@ -8,11 +8,12 @@ export const QUESTION_TYPES = [
   "fill_blank",
   "ordering",
   "matching",
+  "hotspot",
 ] as const;
 export type QuestionType = (typeof QUESTION_TYPES)[number];
 
 const OPTION_LETTERS = ["A", "B", "C", "D", "E", "F"] as const;
-const MAX_ROWS = 2000;
+const MAX_ROWS = 10000;
 
 export interface RowError {
   row: number;
@@ -236,6 +237,13 @@ export function validateRow(raw: RawRow): { valid?: ValidatedQuestion; errors: R
       errors.push({ row, column: "Option A..F", message: "Ordering questions need at least 2 options, listed in the correct order" });
     }
     correctAnswer = 0; // unused by ordering scoring; options' own order is the correct order
+  } else if (questionType === "fill_blank") {
+    const answer = (cells.correctAnswer ?? "").trim();
+    if (!answer) {
+      errors.push({ row, column: "CorrectAnswer", message: "CorrectAnswer is required for fill_blank questions" });
+    }
+    finalOptionsEn = [answer];
+    correctAnswer = 0;
   } else {
     if (optionsEn.length < 2) {
       errors.push({ row, column: "Option A..F", message: "At least 2 options are required for this question type" });
@@ -254,8 +262,8 @@ export function validateRow(raw: RawRow): { valid?: ValidatedQuestion; errors: R
   }
 
   const imageUrl = (cells.imageUrl ?? "").trim() || null;
-  if (questionType === "image" && !imageUrl) {
-    errors.push({ row, column: "ImageURL", message: "ImageURL is required for image questions" });
+  if ((questionType === "image" || questionType === "hotspot") && !imageUrl) {
+    errors.push({ row, column: "ImageURL", message: "ImageURL is required for this question type" });
   }
 
   if (errors.length > 0 || !questionType) {

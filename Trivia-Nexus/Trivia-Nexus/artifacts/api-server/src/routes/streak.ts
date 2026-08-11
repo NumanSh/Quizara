@@ -48,7 +48,8 @@ router.get("/streak", async (req, res): Promise<void> => {
       nextMilestone,
       milestones: milestonesFromRates(rates),
     });
-  } catch {
+  } catch (err) {
+    req.log.error({ err }, "Failed to get streak");
     res.status(500).json({ error: "Internal error" });
   }
 });
@@ -172,6 +173,7 @@ router.post("/streak/checkin", async (req, res): Promise<void> => {
       res.status(409).json({ error: "Already checked in or session modified" });
       return;
     }
+    req.log.error({ err }, "Failed to check in streak");
     res.status(500).json({ error: "Internal error" });
   }
 });
@@ -207,7 +209,8 @@ router.post("/streak/watch-ad-coins", async (req, res): Promise<void> => {
       totalCoins: updated.coins,
       adWatchesLeft: -1,
     });
-  } catch {
+  } catch (err) {
+    req.log.error({ err }, "Failed to award streak ad coins");
     res.status(500).json({ error: "Internal error" });
   }
 });

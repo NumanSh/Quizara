@@ -5,23 +5,92 @@ import { eq, desc, sql } from "drizzle-orm";
 
 const router: IRouter = Router();
 
+interface LeaderboardRow {
+  userId: string;
+  username: string | null;
+  country: string | null;
+  totalScore: number;
+  gamesPlayed: number;
+  profileImageUrl: string | null;
+}
+
+/**
+ * Score earned in the last 7 days, summed across the two modes that keep a
+ * timestamped per-game record: classic/level quizzes (`quiz_sessions`) and
+ * Blitz (`user_blitz_attempts`). Arena has no per-match history table — only
+ * the aggregate in `arena_stats` — so arena points cannot be windowed and are
+ * excluded from the weekly board.
+ */
+async function getWeeklyLeaderboard(limit: number): Promise<LeaderboardRow[]> {
+  const result = await db.execute(sql`
+    WITH earned AS (
+      SELECT user_id, SUM(score)::int AS score, COUNT(*)::int AS games
+      FROM quiz_sessions
+      WHERE status = 'completed'
+        AND user_id IS NOT NULL
+        AND completed_at >= now() - interval '7 days'
+      GROUP BY user_id
+      UNION ALL
+      -- Blitz credits points to the profile per answer, so an abandoned run's
+      -- score is already banked and must be counted here to stay consistent
+      -- with the all-time board. Only *completed* runs count as a game played.
+      SELECT user_id,
+             SUM(points_earned)::int AS score,
+             COUNT(*) FILTER (WHERE status = 'completed')::int AS games
+      FROM user_blitz_attempts
+      WHERE started_at >= now() - interval '7 days'
+      GROUP BY user_id
+    ), totals AS (
+      SELECT user_id, SUM(score)::int AS total_score, SUM(games)::int AS games_played
+      FROM earned
+      GROUP BY user_id
+    )
+    SELECT t.user_id, p.username, p.country, t.total_score, t.games_played, u.profile_image_url
+    FROM totals t
+    JOIN profiles p ON p.user_id = t.user_id
+    LEFT JOIN users u ON u.id = t.user_id
+    WHERE t.total_score > 0
+    ORDER BY t.total_score DESC
+    LIMIT ${limit}
+  `);
+
+  return result.rows.map((row: Record<string, unknown>) => ({
+    userId: String(row.user_id),
+    username: String(row.username),
+    country: (row.country as string | null) ?? null,
+    totalScore: Number(row.total_score),
+    gamesPlayed: Number(row.games_played),
+    profileImageUrl: (row.profile_image_url as string | null) ?? null,
+  }));
+}
+
+async function getAllTimeLeaderboard(limit: number): Promise<LeaderboardRow[]> {
+  return db
+    .select({
+      userId: profilesTable.userId,
+      username: profilesTable.username,
+      country: profilesTable.country,
+      totalScore: profilesTable.totalScore,
+      gamesPlayed: profilesTable.gamesPlayed,
+      profileImageUrl: usersTable.profileImageUrl,
+    })
+    .from(profilesTable)
+    .leftJoin(usersTable, eq(profilesTable.userId, usersTable.id))
+    .orderBy(desc(profilesTable.totalScore))
+    .limit(limit);
+}
+
 router.get("/leaderboard", async (req, res) => {
   try {
-    const limit = Math.min(Number(req.query.limit ?? 50), 100);
+    // Guard against NaN: a non-numeric ?limit would otherwise reach SQL as
+    // `LIMIT NaN` and blow up the query.
+    const parsedLimit = Number(req.query.limit ?? 50);
+    const limit = Number.isFinite(parsedLimit) ? Math.min(Math.max(1, Math.trunc(parsedLimit)), 100) : 50;
+    const period = req.query.period === "weekly" ? "weekly" : "all_time";
 
-    const rows = await db
-      .select({
-        userId: profilesTable.userId,
-        username: profilesTable.username,
-        country: profilesTable.country,
-        totalScore: profilesTable.totalScore,
-        gamesPlayed: profilesTable.gamesPlayed,
-        profileImageUrl: usersTable.profileImageUrl,
-      })
-      .from(profilesTable)
-      .leftJoin(usersTable, eq(profilesTable.userId, usersTable.id))
-      .orderBy(desc(profilesTable.totalScore))
-      .limit(limit);
+    const rows = period === "weekly"
+      ? await getWeeklyLeaderboard(limit)
+      : await getAllTimeLeaderboard(limit);
 
     const result = rows.map((row, i) => ({
       rank: i + 1,

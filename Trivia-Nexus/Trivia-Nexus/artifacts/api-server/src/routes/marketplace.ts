@@ -16,33 +16,44 @@ async function ensureMarketplaceItems() {
     { name: "Freeze Timer", nameAr: "تجميد الوقت", description: "Stops the countdown clock for 10 seconds.", descriptionAr: "يوقف ساعة العد التنازلي لمدة 10 ثوانٍ.", type: "powerup", effect: "freeze_timer", emoji: "❄️", price: 400 },
     { name: "Extra Time", nameAr: "وقت إضافي", description: "Adds 15 extra seconds to the current question.", descriptionAr: "يضيف 15 ثانية إضافية للسؤال الحالي.", type: "powerup", effect: "extra_time", emoji: "⏰", price: 150 },
     { name: "Skip Question", nameAr: "تخطي السؤال", description: "Skip the current question without any penalty.", descriptionAr: "تخطى السؤال الحالي دون أي خصم.", type: "powerup", effect: "skip_question", emoji: "⏭️", price: 250 },
-    { name: "Double Score", nameAr: "مضاعفة النقاط", description: "Doubles your points for the next 3 questions.", descriptionAr: "يضاعف نقاطك لمدة 3 أسئلة قادمة.", type: "powerup", effect: "double_score", emoji: "✖️", price: 500 },
+    { name: "Double Score", nameAr: "مضاعفة النقاط", description: "Doubles your points for your next correct answer.", descriptionAr: "يضاعف نقاطك لإجابتك الصحيحة التالية.", type: "powerup", effect: "double_score", emoji: "✖️", price: 500 },
     { name: "Lucky Wheel", nameAr: "عجلة الحظ", description: "Spin for a random reward — coins, power-ups, or bonus points.", descriptionAr: "أدر العجلة للحصول على مكافأة عشوائية.", type: "powerup", effect: "lucky_wheel", emoji: "🎰", price: 300 },
     { name: "Shield", nameAr: "درع", description: "Block your opponent's next power-up (Arena only).", descriptionAr: "يحجب قوة خصمك التالية في الساحة.", type: "powerup", effect: "shield", emoji: "🛡️", price: 350 },
     { name: "Steal Question", nameAr: "سرقة السؤال", description: "Steal your opponent's points for the current question (Arena only).", descriptionAr: "تسرق نقاط خصمك للسؤال الحالي.", type: "powerup", effect: "steal_question", emoji: "🎯", price: 600 },
   ]);
 }
 
-// Ensure Arena-specific power-ups exist (run on every items fetch)
+/**
+ * Power-ups that were added after the original seed list, and so are missing
+ * from databases seeded by an earlier version. Checked on every items fetch.
+ *
+ * `streak_freeze` must exist here: the Battle Pass grants it at premium tiers
+ * 7/18/28, and the streak logic looks it up by effect.
+ */
+const LATE_ADDED_POWER_UPS = [
+  {
+    name: "Shield", nameAr: "درع",
+    description: "Block your opponent's next power-up (Arena only).", descriptionAr: "يحجب قوة خصمك التالية في الساحة.",
+    type: "powerup", effect: "shield", emoji: "🛡️", price: 350,
+  },
+  {
+    name: "Steal Question", nameAr: "سرقة السؤال",
+    description: "Steal your opponent's points for the current question (Arena only).", descriptionAr: "تسرق نقاط خصمك للسؤال الحالي.",
+    type: "powerup", effect: "steal_question", emoji: "🎯", price: 600,
+  },
+  {
+    name: "Streak Freeze", nameAr: "تجميد السلسلة",
+    description: "Protects your daily streak for one missed day.", descriptionAr: "يحمي سلسلتك اليومية عند تفويت يوم واحد.",
+    type: "powerup", effect: "streak_freeze", emoji: "🛡️", price: 450,
+  },
+];
+
 async function ensureArenaPowerUps() {
-  const arenaEffects = ["shield", "steal_question"];
-  for (const effect of arenaEffects) {
+  for (const item of LATE_ADDED_POWER_UPS) {
     const [existing] = await db.select().from(marketplaceItemsTable)
-      .where(eq(marketplaceItemsTable.effect, effect));
+      .where(eq(marketplaceItemsTable.effect, item.effect));
     if (!existing) {
-      if (effect === "shield") {
-        await db.insert(marketplaceItemsTable).values({
-          name: "Shield", nameAr: "درع",
-          description: "Block your opponent's next power-up (Arena only).", descriptionAr: "يحجب قوة خصمك التالية في الساحة.",
-          type: "powerup", effect: "shield", emoji: "🛡️", price: 350,
-        });
-      } else {
-        await db.insert(marketplaceItemsTable).values({
-          name: "Steal Question", nameAr: "سرقة السؤال",
-          description: "Steal your opponent's points for the current question (Arena only).", descriptionAr: "تسرق نقاط خصمك للسؤال الحالي.",
-          type: "powerup", effect: "steal_question", emoji: "🎯", price: 600,
-        });
-      }
+      await db.insert(marketplaceItemsTable).values(item);
     }
   }
 }

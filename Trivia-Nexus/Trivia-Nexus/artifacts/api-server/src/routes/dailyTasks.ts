@@ -6,8 +6,9 @@ import {
   profilesTable,
   categoriesTable,
 } from "@workspace/db";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, sql } from "drizzle-orm";
 import { awardBattlePassXp } from "./xpHelper";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
@@ -134,30 +135,35 @@ router.post("/daily-tasks/:id/claim", async (req, res): Promise<void> => {
       return;
     }
 
-    const [updatedProgress] = await db
-      .update(userDailyTaskProgressTable)
-      .set({ isClaimed: true, claimedAt: new Date() })
-      .where(and(
-        eq(userDailyTaskProgressTable.id, progress.id),
-        eq(userDailyTaskProgressTable.isClaimed, false)
-      ))
-      .returning();
+    // Flag the claim and pay it out in one transaction, so the task can never be
+    // marked claimed without the coins actually landing.
+    let alreadyClaimed = false;
+    await db.transaction(async (tx) => {
+      const [updatedProgress] = await tx
+        .update(userDailyTaskProgressTable)
+        .set({ isClaimed: true, claimedAt: new Date() })
+        .where(and(
+          eq(userDailyTaskProgressTable.id, progress.id),
+          eq(userDailyTaskProgressTable.isClaimed, false)
+        ))
+        .returning();
 
-    if (!updatedProgress) {
+      if (!updatedProgress) {
+        alreadyClaimed = true;
+        return;
+      }
+
+      if (template.coinReward > 0) {
+        await tx
+          .update(profilesTable)
+          .set({ coins: sql`${profilesTable.coins} + ${template.coinReward}` })
+          .where(eq(profilesTable.userId, req.user.id));
+      }
+    });
+
+    if (alreadyClaimed) {
       res.status(409).json({ error: "Reward already claimed or session modified" });
       return;
-    }
-
-    const [profile] = await db
-      .select()
-      .from(profilesTable)
-      .where(eq(profilesTable.userId, req.user.id));
-
-    if (profile) {
-      await db
-        .update(profilesTable)
-        .set({ coins: profile.coins + template.coinReward })
-        .where(eq(profilesTable.userId, req.user.id));
     }
 
     if (template.xpReward > 0) {
@@ -401,6 +407,23 @@ export async function updateDailyTaskProgress(
       }).where(eq(userDailyTaskProgressTable.id, existing.id));
     }
   }
+}
+
+/**
+ * Fire-and-forget wrapper for `updateDailyTaskProgress`.
+ *
+ * Task progress must never fail the game action that triggered it, but a failure
+ * still costs the player a reward — so it is logged rather than swallowed.
+ * Pass `categoryId: ""` for modes with no single category (blitz, arena); only
+ * `category_quiz` templates are category-scoped.
+ */
+export function trackDailyTaskProgress(
+  userId: string,
+  opts: { categoryId: string; score: number; correctAnswers: number; totalQuestions: number },
+): void {
+  updateDailyTaskProgress(userId, opts).catch((err) => {
+    logger.error({ err, userId }, "Failed to update daily task progress");
+  });
 }
 
 // ─── Internal helper: auto-generate task for a new category ──────────────────
