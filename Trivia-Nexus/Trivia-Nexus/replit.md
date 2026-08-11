@@ -22,7 +22,6 @@ pnpm monorepo with TypeScript. Contract-first API design (OpenAPI → Orval code
 | `lib/api-client-react` | Generated React Query hooks (`@workspace/api-client-react`) |
 | `lib/api-zod` | Generated Zod schemas (`@workspace/api-zod`) |
 | `lib/db` | Drizzle ORM schema + PostgreSQL client (`@workspace/db`) |
-| `lib/replit-auth-web` | `useAuth()` hook for Replit OIDC auth (`@workspace/replit-auth-web`) |
 
 ## Stack
 
@@ -34,8 +33,15 @@ pnpm monorepo with TypeScript. Contract-first API design (OpenAPI → Orval code
 - **Database**: PostgreSQL + Drizzle ORM
 - **Validation**: Zod (`zod/v4`), `drizzle-zod`
 - **API codegen**: Orval (OpenAPI → React Query hooks + Zod schemas)
-- **Auth**: Replit OIDC (openid-client)
+- **Auth**: Supabase Auth (Google OAuth); JWT verified server-side
+- **Realtime**: `ws` WebSocket server for Arena (`/api/arena/ws`)
 - **Build**: esbuild
+
+> **Note on the API layer:** only ~1/3 of the backend is described in `lib/api-spec/openapi.yaml`,
+> so only those endpoints have generated hooks. Everything else (worlds, hearts, streak,
+> battlepass, badges, challenges, wheel, blitz, daily tasks, admin economy) is called through
+> the hand-written `authFetch` in `artifacts/quizara/src/lib/api.ts`, which always uses
+> same-origin relative `/api/...` URLs.
 
 ## Key Commands
 
@@ -47,15 +53,23 @@ pnpm --filter @workspace/db run push           # Push DB schema (dev only)
 
 ## Database Schema
 
-Tables: `sessions`, `users`, `profiles`, `categories`, `questions`, `quiz_sessions`, `level_progress`, `marketplace_items`, `user_inventory`, `settings`, `arena_stats`, `user_battle_pass`, `badges`, `user_badges`
+21 tables: `sessions`, `users`, `profiles`, `categories`, `questions`, `quiz_sessions`, `level_progress`, `marketplace_items`, `user_inventory`, `settings`, `economy_rates`, `arena_stats`, `user_battle_pass`, `challenges`, `challenge_scores`, `badges`, `user_badges`, `blitz_daily_pool`, `user_blitz_attempts`, `daily_task_templates`, `user_daily_task_progress`
+
+> The seed dumps (`trivia_data.sql`, `supabase_ready_data.sql`) only cover 16 of these.
+> `economy_rates`, both `*_blitz_*` tables and both `*_daily_task_*` tables exist only via
+> `drizzle-kit push` — a database restored from a dump alone cannot run blitz, daily tasks,
+> or the admin economy panel.
 
 ### Hearts/Lives System
 - `profiles.hearts` (integer, default 6, max 6) — current heart count
 - `profiles.hearts_last_updated` (timestamptz) — timestamp used to compute refill timing
-- Refill rate: 1 heart every 7 minutes; timer pauses when hearts = 6
+- Refill rate: 1 heart every **30 minutes** (`REFILL_MS`); timer pauses when hearts = 6
 - Deduction: 1 heart removed when a solo level is **failed** (score < 30)
-- Guest users: hearts tracked in `localStorage` key `quizara_hearts`
-- API: `GET /api/hearts`, `POST /api/hearts/deduct`
+- Guest users: hearts tracked in `localStorage` key `quizara_hearts`.
+  `computeGuestHearts` mirrors the server's `computeHearts` — callers must persist the
+  returned `newLastUpdated` alongside `hearts`, or elapsed regen is counted twice.
+- API: `GET /api/hearts`, `POST /api/hearts/deduct`, `POST /api/hearts/watch-ad`,
+  `POST /api/hearts/watch-ad-fail-bonus`
 
 Key notes:
 - `categories` is self-referential (parentId → main category / subcategory)
@@ -87,8 +101,15 @@ All routes under `/api`:
 | `/results/:sessionId` | `Results.tsx` | Final score, accuracy, grade |
 | `/leaderboard` | `Leaderboard.tsx` | Global (all-time/weekly) + by country tabs |
 | `/profile` | `Profile.tsx` | Stats, username/country editor, admin code, Trophy Cabinet (badges) |
-| `/admin` | `Admin.tsx` | Admin panel (overview, categories, questions, users, settings, badges CRUD) |
+| `/admin` | `Admin.tsx` | Admin panel — 9 tabs: overview, categories, questions (+Excel import), users, settings, badges, marketplace, daily tasks, economy |
 | `/login` | `Login.tsx` | Branded sign-in page |
+| `/marketplace` | `Marketplace.tsx` | Cosmetics + power-ups; buy/equip/unequip |
+| `/arena` | `Arena.tsx` | Realtime multiplayer over WebSocket — matchmaking + friend rooms |
+| `/battlepass` | `BattlePass.tsx` | 30-tier season pass, free + premium tracks |
+| `/blitz` | `Blitz.tsx` | Daily 90-second timed run against a shared question pool |
+| `/tasks` | `DailyTasks.tsx` | Daily tasks with coin/XP rewards (auth-only) |
+| `/wheel` | `LuckyWheel.tsx` | Daily spin-to-win |
+| `/challenge/:code` | `Challenge.tsx` | Challenge-a-friend link + mini leaderboard |
 
 ## Design System
 
@@ -99,10 +120,13 @@ All routes under `/api`:
 
 ## Auth
 
-- Replit OIDC via `openid-client`
-- Session stored in PostgreSQL (`sessions` table, express-session)
-- `useAuth()` from `@workspace/replit-auth-web` — returns `{ user, isAuthenticated, login, logout }`
-- Admin access: users enter code `QUIZARA_ADMIN_2024` in their profile to gain admin role
+- Supabase Auth with Google as the identity provider
+- Frontend: `useSupabaseAuth()` (`src/hooks/useSupabaseAuth.ts`) — returns `{ user, isAuthenticated, login, logout }`
+- The Supabase JWT is sent as `Authorization: Bearer …` by both `authFetch` and the generated client
+- Backend: `middlewares/authMiddleware.ts` verifies the token and upserts `users` + `profiles`.
+  It **never rejects** — it only populates `req.user`, so every route must check auth itself.
+- Admin access: users enter the admin code in their profile to gain the admin role
+- The `sessions` table is leftover from Replit OIDC and is no longer used
 
 ## Question Types
 
