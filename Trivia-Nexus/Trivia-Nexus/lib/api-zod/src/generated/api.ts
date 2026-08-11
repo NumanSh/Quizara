@@ -181,6 +181,62 @@ export const UpdateProfileResponse = zod.object({
 });
 
 /**
+ * @summary Get favorite worlds and the most recent resumable route
+ */
+export const GetPlayerLibraryResponse = zod.object({
+  favoriteCategoryIds: zod.array(zod.string()),
+  continuePlaying: zod.union([
+    zod.object({
+      categoryId: zod.string(),
+      name: zod.string(),
+      nameAr: zod.string(),
+      icon: zod.string(),
+      imageUrl: zod.string().nullable(),
+      totalLevels: zod.number(),
+      completedLevels: zod.number(),
+      nextLevel: zod.number(),
+      lastPlayedAt: zod.coerce.date(),
+      state: zod.enum(["resume_quiz", "continue_world", "complete"]),
+      href: zod.string(),
+      activeSession: zod.union([
+        zod.object({
+          sessionId: zod.string(),
+          levelNumber: zod.number(),
+          currentQuestionNumber: zod.number(),
+          totalQuestions: zod.number(),
+        }),
+        zod.null(),
+      ]),
+    }),
+    zod.null(),
+  ]),
+});
+
+/**
+ * @summary Add a world to the current user's favorites
+ */
+export const FavoriteCategoryParams = zod.object({
+  categoryId: zod.coerce.string(),
+});
+
+export const FavoriteCategoryResponse = zod.object({
+  categoryId: zod.string(),
+  favorited: zod.boolean(),
+});
+
+/**
+ * @summary Remove a world from the current user's favorites
+ */
+export const UnfavoriteCategoryParams = zod.object({
+  categoryId: zod.coerce.string(),
+});
+
+export const UnfavoriteCategoryResponse = zod.object({
+  categoryId: zod.string(),
+  favorited: zod.boolean(),
+});
+
+/**
  * @summary List all main categories
  */
 export const ListCategoriesQueryParams = zod.object({
@@ -196,7 +252,12 @@ export const ListCategoriesResponseItem = zod.object({
   nameAr: zod.string(),
   icon: zod.string(),
   color: zod.string().nullish(),
-  imageUrl: zod.string().nullish(),
+  imageUrl: zod
+    .string()
+    .nullish()
+    .describe(
+      "Optional world map background media URL. Supports images, animated images, and browser-playable video.",
+    ),
   parentId: zod.string().nullable(),
   questionCount: zod.number(),
   createdAt: zod.coerce.date(),
@@ -216,7 +277,12 @@ export const GetCategoryResponse = zod.object({
   nameAr: zod.string(),
   icon: zod.string(),
   color: zod.string().nullish(),
-  imageUrl: zod.string().nullish(),
+  imageUrl: zod
+    .string()
+    .nullish()
+    .describe(
+      "Optional world map background media URL. Supports images, animated images, and browser-playable video.",
+    ),
   parentId: zod.string().nullable(),
   questionCount: zod.number(),
   createdAt: zod.coerce.date(),
@@ -235,7 +301,12 @@ export const ListSubcategoriesResponseItem = zod.object({
   nameAr: zod.string(),
   icon: zod.string(),
   color: zod.string().nullish(),
-  imageUrl: zod.string().nullish(),
+  imageUrl: zod
+    .string()
+    .nullish()
+    .describe(
+      "Optional world map background media URL. Supports images, animated images, and browser-playable video.",
+    ),
   parentId: zod.string().nullable(),
   questionCount: zod.number(),
   createdAt: zod.coerce.date(),
@@ -364,6 +435,9 @@ export const GetQuizSessionResponse = zod.object({
   categoryName: zod.string().optional(),
   status: zod.enum(["active", "completed"]),
   score: zod.number(),
+  correctAnswers: zod
+    .number()
+    .describe("Number of questions answered correctly so far"),
   currentQuestion: zod.union([
     zod.object({
       id: zod.string(),
@@ -506,7 +580,12 @@ export const AdminListCategoriesResponseItem = zod.object({
   nameAr: zod.string(),
   icon: zod.string(),
   color: zod.string().nullish(),
-  imageUrl: zod.string().nullish(),
+  imageUrl: zod
+    .string()
+    .nullish()
+    .describe(
+      "Optional world map background media URL. Supports images, animated images, and browser-playable video.",
+    ),
   parentId: zod.string().nullable(),
   questionCount: zod.number(),
   createdAt: zod.coerce.date(),
@@ -523,7 +602,12 @@ export const AdminCreateCategoryBody = zod.object({
   nameAr: zod.string().optional(),
   icon: zod.string(),
   color: zod.string().optional(),
-  imageUrl: zod.string().optional(),
+  imageUrl: zod
+    .string()
+    .optional()
+    .describe(
+      "Optional world map background media URL. Supports images, animated images, and browser-playable video.",
+    ),
   parentId: zod.string().nullish(),
 });
 
@@ -539,7 +623,12 @@ export const AdminUpdateCategoryBody = zod.object({
   nameAr: zod.string().optional(),
   icon: zod.string(),
   color: zod.string().optional(),
-  imageUrl: zod.string().optional(),
+  imageUrl: zod
+    .string()
+    .optional()
+    .describe(
+      "Optional world map background media URL. Supports images, animated images, and browser-playable video.",
+    ),
   parentId: zod.string().nullish(),
 });
 
@@ -549,7 +638,12 @@ export const AdminUpdateCategoryResponse = zod.object({
   nameAr: zod.string(),
   icon: zod.string(),
   color: zod.string().nullish(),
-  imageUrl: zod.string().nullish(),
+  imageUrl: zod
+    .string()
+    .nullish()
+    .describe(
+      "Optional world map background media URL. Supports images, animated images, and browser-playable video.",
+    ),
   parentId: zod.string().nullable(),
   questionCount: zod.number(),
   createdAt: zod.coerce.date(),

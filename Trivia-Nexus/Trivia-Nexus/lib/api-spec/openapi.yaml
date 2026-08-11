@@ -22,6 +22,8 @@ tags:
     description: Leaderboard and rankings
   - name: profile
     description: User profile management
+  - name: player-library
+    description: Personalized resume state and favorite worlds
   - name: admin
     description: Admin management endpoints
   - name: marketplace
@@ -188,6 +190,57 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/UserProfile'
+        '401':
+          description: Unauthorized
+
+  /player/library:
+    get:
+      operationId: getPlayerLibrary
+      tags: [player-library]
+      summary: Get favorite worlds and the most recent resumable route
+      responses:
+        '200':
+          description: Personalized player library
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlayerLibrary'
+        '401':
+          description: Unauthorized
+
+  /player/favorites/{categoryId}:
+    parameters:
+      - name: categoryId
+        in: path
+        required: true
+        schema:
+          type: string
+    put:
+      operationId: favoriteCategory
+      tags: [player-library]
+      summary: Add a world to the current user's favorites
+      responses:
+        '200':
+          description: World favorited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FavoriteCategoryResult'
+        '401':
+          description: Unauthorized
+        '404':
+          description: World not found
+    delete:
+      operationId: unfavoriteCategory
+      tags: [player-library]
+      summary: Remove a world from the current user's favorites
+      responses:
+        '200':
+          description: World removed from favorites
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FavoriteCategoryResult'
         '401':
           description: Unauthorized
 
@@ -869,6 +922,74 @@ components:
         adminCode:
           type: string
 
+    PlayerLibrary:
+      type: object
+      required: [favoriteCategoryIds, continuePlaying]
+      properties:
+        favoriteCategoryIds:
+          type: array
+          items:
+            type: string
+        continuePlaying:
+          oneOf:
+            - $ref: '#/components/schemas/ContinuePlaying'
+            - type: 'null'
+
+    ContinuePlaying:
+      type: object
+      required: [categoryId, name, nameAr, icon, imageUrl, totalLevels, completedLevels, nextLevel, lastPlayedAt, state, href, activeSession]
+      properties:
+        categoryId:
+          type: string
+        name:
+          type: string
+        nameAr:
+          type: string
+        icon:
+          type: string
+        imageUrl:
+          type: [string, 'null']
+        totalLevels:
+          type: integer
+        completedLevels:
+          type: integer
+        nextLevel:
+          type: integer
+        lastPlayedAt:
+          type: string
+          format: date-time
+        state:
+          type: string
+          enum: [resume_quiz, continue_world, complete]
+        href:
+          type: string
+        activeSession:
+          oneOf:
+            - $ref: '#/components/schemas/ActiveQuizResume'
+            - type: 'null'
+
+    ActiveQuizResume:
+      type: object
+      required: [sessionId, levelNumber, currentQuestionNumber, totalQuestions]
+      properties:
+        sessionId:
+          type: string
+        levelNumber:
+          type: integer
+        currentQuestionNumber:
+          type: integer
+        totalQuestions:
+          type: integer
+
+    FavoriteCategoryResult:
+      type: object
+      required: [categoryId, favorited]
+      properties:
+        categoryId:
+          type: string
+        favorited:
+          type: boolean
+
     Category:
       type: object
       required: [id, name, nameAr, icon, parentId, questionCount, createdAt]
@@ -885,6 +1006,7 @@ components:
           type: [string, 'null']
         imageUrl:
           type: [string, 'null']
+          description: Optional world map background media URL. Supports images, animated images, and browser-playable video.
         parentId:
           type: [string, 'null']
         questionCount:
@@ -920,6 +1042,7 @@ components:
           type: string
         imageUrl:
           type: string
+          description: Optional world map background media URL. Supports images, animated images, and browser-playable video.
         parentId:
           type: [string, 'null']
 
@@ -1060,7 +1183,7 @@ components:
 
     QuizSession:
       type: object
-      required: [sessionId, categoryId, status, score, currentQuestion, questionNumber, totalQuestions]
+      required: [sessionId, categoryId, status, score, correctAnswers, currentQuestion, questionNumber, totalQuestions]
       properties:
         sessionId:
           type: string
@@ -1073,6 +1196,9 @@ components:
           enum: [active, completed]
         score:
           type: integer
+        correctAnswers:
+          type: integer
+          description: Number of questions answered correctly so far
         currentQuestion:
           oneOf:
             - $ref: '#/components/schemas/QuizQuestion'

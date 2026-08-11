@@ -113,6 +113,48 @@ export interface UpdateProfileBody {
   adminCode?: string;
 }
 
+export type ContinuePlayingState =
+  (typeof ContinuePlayingState)[keyof typeof ContinuePlayingState];
+
+export const ContinuePlayingState = {
+  resume_quiz: "resume_quiz",
+  continue_world: "continue_world",
+  complete: "complete",
+} as const;
+
+export interface ActiveQuizResume {
+  sessionId: string;
+  levelNumber: number;
+  currentQuestionNumber: number;
+  totalQuestions: number;
+}
+
+export interface ContinuePlaying {
+  categoryId: string;
+  name: string;
+  nameAr: string;
+  icon: string;
+  /** @nullable */
+  imageUrl: string | null;
+  totalLevels: number;
+  completedLevels: number;
+  nextLevel: number;
+  lastPlayedAt: string;
+  state: ContinuePlayingState;
+  href: string;
+  activeSession: ActiveQuizResume | null;
+}
+
+export interface PlayerLibrary {
+  favoriteCategoryIds: string[];
+  continuePlaying: ContinuePlaying | null;
+}
+
+export interface FavoriteCategoryResult {
+  categoryId: string;
+  favorited: boolean;
+}
+
 export interface Category {
   id: string;
   name: string;
@@ -120,7 +162,10 @@ export interface Category {
   icon: string;
   /** @nullable */
   color?: string | null;
-  /** @nullable */
+  /**
+   * Optional world map background media URL. Supports images, animated images, and browser-playable video.
+   * @nullable
+   */
   imageUrl?: string | null;
   /** @nullable */
   parentId: string | null;
@@ -140,6 +185,7 @@ export interface CreateCategoryBody {
   nameAr?: string;
   icon: string;
   color?: string;
+  /** Optional world map background media URL. Supports images, animated images, and browser-playable video. */
   imageUrl?: string;
   /** @nullable */
   parentId?: string | null;
@@ -279,6 +325,8 @@ export interface QuizSession {
   categoryName?: string;
   status: QuizSessionStatus;
   score: number;
+  /** Number of questions answered correctly so far */
+  correctAnswers: number;
   currentQuestion: QuizQuestion | null;
   questionNumber: number;
   totalQuestions: number;

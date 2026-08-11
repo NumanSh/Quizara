@@ -30,6 +30,7 @@ import type {
   CreateQuestionBody,
   DeleteResult,
   ErrorEnvelope,
+  FavoriteCategoryResult,
   GetArenaLeaderboardParams,
   GetLeaderboardParams,
   HandleBrowserLoginCallbackParams,
@@ -43,6 +44,7 @@ import type {
   MobileTokenExchangeSuccess,
   MyArenaStats,
   PaginatedQuestions,
+  PlayerLibrary,
   PurchaseItemBody,
   PurchaseResult,
   Question,
@@ -825,6 +827,255 @@ export const useUpdateProfile = <
   TContext
 > => {
   return useMutation(getUpdateProfileMutationOptions(options));
+};
+
+/**
+ * @summary Get favorite worlds and the most recent resumable route
+ */
+export const getGetPlayerLibraryUrl = () => {
+  return `/api/player/library`;
+};
+
+export const getPlayerLibrary = async (
+  options?: RequestInit,
+): Promise<PlayerLibrary> => {
+  return customFetch<PlayerLibrary>(getGetPlayerLibraryUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetPlayerLibraryQueryKey = () => {
+  return [`/api/player/library`] as const;
+};
+
+export const getGetPlayerLibraryQueryOptions = <
+  TData = Awaited<ReturnType<typeof getPlayerLibrary>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getPlayerLibrary>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetPlayerLibraryQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getPlayerLibrary>>
+  > = ({ signal }) => getPlayerLibrary({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getPlayerLibrary>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetPlayerLibraryQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getPlayerLibrary>>
+>;
+export type GetPlayerLibraryQueryError = ErrorType<void>;
+
+/**
+ * @summary Get favorite worlds and the most recent resumable route
+ */
+
+export function useGetPlayerLibrary<
+  TData = Awaited<ReturnType<typeof getPlayerLibrary>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getPlayerLibrary>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetPlayerLibraryQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Add a world to the current user's favorites
+ */
+export const getFavoriteCategoryUrl = (categoryId: string) => {
+  return `/api/player/favorites/${categoryId}`;
+};
+
+export const favoriteCategory = async (
+  categoryId: string,
+  options?: RequestInit,
+): Promise<FavoriteCategoryResult> => {
+  return customFetch<FavoriteCategoryResult>(
+    getFavoriteCategoryUrl(categoryId),
+    {
+      ...options,
+      method: "PUT",
+    },
+  );
+};
+
+export const getFavoriteCategoryMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof favoriteCategory>>,
+    TError,
+    { categoryId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof favoriteCategory>>,
+  TError,
+  { categoryId: string },
+  TContext
+> => {
+  const mutationKey = ["favoriteCategory"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof favoriteCategory>>,
+    { categoryId: string }
+  > = (props) => {
+    const { categoryId } = props ?? {};
+
+    return favoriteCategory(categoryId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type FavoriteCategoryMutationResult = NonNullable<
+  Awaited<ReturnType<typeof favoriteCategory>>
+>;
+
+export type FavoriteCategoryMutationError = ErrorType<void>;
+
+/**
+ * @summary Add a world to the current user's favorites
+ */
+export const useFavoriteCategory = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof favoriteCategory>>,
+    TError,
+    { categoryId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof favoriteCategory>>,
+  TError,
+  { categoryId: string },
+  TContext
+> => {
+  return useMutation(getFavoriteCategoryMutationOptions(options));
+};
+
+/**
+ * @summary Remove a world from the current user's favorites
+ */
+export const getUnfavoriteCategoryUrl = (categoryId: string) => {
+  return `/api/player/favorites/${categoryId}`;
+};
+
+export const unfavoriteCategory = async (
+  categoryId: string,
+  options?: RequestInit,
+): Promise<FavoriteCategoryResult> => {
+  return customFetch<FavoriteCategoryResult>(
+    getUnfavoriteCategoryUrl(categoryId),
+    {
+      ...options,
+      method: "DELETE",
+    },
+  );
+};
+
+export const getUnfavoriteCategoryMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof unfavoriteCategory>>,
+    TError,
+    { categoryId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof unfavoriteCategory>>,
+  TError,
+  { categoryId: string },
+  TContext
+> => {
+  const mutationKey = ["unfavoriteCategory"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof unfavoriteCategory>>,
+    { categoryId: string }
+  > = (props) => {
+    const { categoryId } = props ?? {};
+
+    return unfavoriteCategory(categoryId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UnfavoriteCategoryMutationResult = NonNullable<
+  Awaited<ReturnType<typeof unfavoriteCategory>>
+>;
+
+export type UnfavoriteCategoryMutationError = ErrorType<void>;
+
+/**
+ * @summary Remove a world from the current user's favorites
+ */
+export const useUnfavoriteCategory = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof unfavoriteCategory>>,
+    TError,
+    { categoryId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof unfavoriteCategory>>,
+  TError,
+  { categoryId: string },
+  TContext
+> => {
+  return useMutation(getUnfavoriteCategoryMutationOptions(options));
 };
 
 /**

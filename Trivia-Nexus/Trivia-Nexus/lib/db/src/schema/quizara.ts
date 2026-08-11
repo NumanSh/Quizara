@@ -1,4 +1,4 @@
-import { pgTable, text, integer, timestamp, boolean, jsonb, varchar, serial, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, timestamp, boolean, jsonb, varchar, serial, uniqueIndex, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -37,9 +37,21 @@ export const categoriesTable = pgTable("categories", {
   icon: varchar("icon", { length: 50 }).notNull(),
   color: varchar("color", { length: 30 }),
   imageUrl: text("image_url"),
-  parentId: varchar("parent_id"),
+  // Self-referential. Cascades so deleting a main category also removes its
+  // subcategories (whose questions already cascade), rather than orphaning them
+  // into the top-level category list.
+  parentId: varchar("parent_id").references((): AnyPgColumn => categoriesTable.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const categoryFavoritesTable = pgTable("category_favorites", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  categoryId: varchar("category_id").notNull().references(() => categoriesTable.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("cf_user_category_idx").on(table.userId, table.categoryId),
+]);
 
 export const questionsTable = pgTable("questions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -59,7 +71,9 @@ export const questionsTable = pgTable("questions", {
 
 export const quizSessionsTable = pgTable("quiz_sessions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id"),
+  // Nullable by design (guest sessions). Set null on user delete so historical
+  // sessions survive as anonymous rows instead of dangling at a missing user.
+  userId: varchar("user_id").references(() => usersTable.id, { onDelete: "set null" }),
   categoryId: varchar("category_id").notNull().references(() => categoriesTable.id),
   status: varchar("status", { length: 20 }).notNull().default("active"),
   score: integer("score").notNull().default(0),
@@ -102,6 +116,8 @@ export type Profile = typeof profilesTable.$inferSelect;
 export type InsertProfile = typeof profilesTable.$inferInsert;
 export type Category = typeof categoriesTable.$inferSelect;
 export type InsertCategory = typeof categoriesTable.$inferInsert;
+export type CategoryFavorite = typeof categoryFavoritesTable.$inferSelect;
+export type InsertCategoryFavorite = typeof categoryFavoritesTable.$inferInsert;
 export type Question = typeof questionsTable.$inferSelect;
 export type InsertQuestion = typeof questionsTable.$inferInsert;
 export type QuizSession = typeof quizSessionsTable.$inferSelect;
