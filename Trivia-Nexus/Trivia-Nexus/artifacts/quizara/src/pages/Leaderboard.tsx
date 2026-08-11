@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Trophy, Globe, User, Swords, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { AdSlot } from "@/components/AdSlot";
 import { useI18n } from "@/lib/i18n";
 
 const MEDALS = ["🥇", "🥈", "🥉"];
@@ -328,6 +329,8 @@ export default function Leaderboard() {
           </TabsContent>
         </Tabs>
       </div>
+
+      <AdSlot index={0} className="border-t border-white/8" />
     </div>
   );
 }

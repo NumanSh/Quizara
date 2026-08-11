@@ -7,6 +7,7 @@ import { useStreak } from "@/hooks/useStreak";
 import { usePlayerLibrary } from "@/hooks/usePlayerLibrary";
 import { useI18n } from "@/lib/i18n";
 import { Skeleton } from "@/components/ui/skeleton";
+import { AdSlot } from "@/components/AdSlot";
 import { cn } from "@/lib/utils";
 
 const MILESTONE_COINS: Record<number, number> = { 7: 50, 30: 200, 100: 500 };
@@ -263,6 +264,8 @@ export default function Home() {
         </div>
       </section>
 
+      <AdSlot index={0} className="border-b border-white/8" />
+
       <motion.section {...reveal} className="mx-auto grid max-w-[1440px] gap-16 px-5 py-20 sm:px-8 lg:grid-cols-2 lg:px-12 lg:py-28 xl:px-16">
         <div>
           <Eyebrow index="03">{t.home.consistencyCompounds}</Eyebrow>
@@ -282,6 +285,8 @@ export default function Home() {
           <Link href="/leaderboard" className="focus-ring mt-7 inline-flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-primary">{t.home.topPlayers.viewFull}<ArrowRight className="h-4 w-4 rtl:rotate-180" /></Link>
         </div>
       </motion.section>
+
+      <AdSlot index={1} className="border-t border-white/8" />
 
       <motion.section {...reveal} className="mx-auto max-w-[1440px] px-5 py-20 sm:px-8 lg:px-12 lg:py-28 xl:px-16">
         <Eyebrow index="05">{t.home.howToPlay.title}</Eyebrow>

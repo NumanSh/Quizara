@@ -25,6 +25,7 @@ import {
   getFrameStyle, getBgStyle, getUsernameStyle, cosmeticLabel,
 } from "@/lib/cosmetics";
 import { authFetch } from "@/lib/api";
+import { AdSlot } from "@/components/AdSlot";
 import { useI18n } from "@/lib/i18n";
 import type { Translations } from "@/locales/en";
 
@@ -579,6 +580,8 @@ export default function Marketplace() {
           )}
         </TabsContent>
       </Tabs>
+
+      <AdSlot index={0} className="border-t border-white/8" />
 
       {showCoinAd && (
         <WatchAdModal
