@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import type { Translations } from "@/locales/en";
 
 // ─── Avatar Frames ────────────────────────────────────────────────────────────
 export interface FrameDef {
@@ -112,3 +113,7 @@ export const ALL_COSMETIC_EFFECTS = [
   ...Object.keys(BG_DEFS),
   ...Object.keys(COLOR_DEFS),
 ];
+
+export function cosmeticLabel(t: Translations, effectKey: string): string {
+  return (t.cosmetics as Record<string, string>)[effectKey] ?? effectKey;
+}

@@ -1,60 +1,71 @@
-import { useParams, useLocation } from "wouter";
-import { useGetQuizSession, getGetQuizSessionQueryKey, useCompleteQuiz, getGetProfileQueryKey } from "@workspace/api-client-react";
+import { useEffect, useRef, useState } from "react";
+import { useLocation, useParams } from "wouter";
+import { motion, useReducedMotion } from "framer-motion";
+import { getGetProfileQueryKey, getGetQuizSessionQueryKey, useCompleteQuiz, useGetQuizSession } from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { ArrowRight, Check, ChevronRight, Clock3, Crown, Heart, LayoutGrid, Link2, Loader2, RotateCcw, Sparkles, Target, Trophy, X, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Trophy, Target, Zap, RotateCcw, LayoutGrid, CheckCircle2, XCircle, ChevronRight, Link2, Crown } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { useEffect, useRef, useState } from "react";
+import { GameShell } from "@/components/quiz/GameShell";
 import { StreakMilestoneModal } from "@/components/StreakMilestoneModal";
 import { WatchAdModal } from "@/components/WatchAdModal";
 import { useSupabaseAuth } from "@/hooks/useSupabaseAuth";
-import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { authFetch } from "@/lib/api";
+import { useI18n } from "@/lib/i18n";
+import { cn } from "@/lib/utils";
 
 const AD_XP = 50;
+
+function formatDuration(seconds: number) {
+  const safeSeconds = Math.max(0, seconds);
+  const minutes = Math.floor(safeSeconds / 60);
+  const remainder = safeSeconds % 60;
+  return `${minutes}:${String(remainder).padStart(2, "0")}`;
+}
 
 export default function Results() {
   const { sessionId } = useParams();
   const [, setLocation] = useLocation();
+  const reduceMotion = useReducedMotion();
   const { isAuthenticated } = useSupabaseAuth();
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [milestone, setMilestone] = useState<{ streak: number; coins: number } | null>(null);
   const [showXpAd, setShowXpAd] = useState(false);
+  const [startingAgain, setStartingAgain] = useState(false);
   const [challengeCtx, setChallengeCtx] = useState<{ code: string; playerName: string } | null>(null);
   const [challengeRank, setChallengeRank] = useState<number | null>(null);
   const challengeSubmitted = useRef(false);
 
-  const { data: session, isLoading } = useGetQuizSession(sessionId || "", {
+  const { data: session, isLoading, isError, refetch } = useGetQuizSession(sessionId || "", {
     query: {
       queryKey: getGetQuizSessionQueryKey(sessionId || ""),
       enabled: !!sessionId,
     },
   });
 
-  const completeQuiz = useCompleteQuiz({
-    mutation: { onSuccess: () => {} },
-  });
+  const completeQuiz = useCompleteQuiz({ mutation: { onSuccess: () => {} } });
 
   useEffect(() => {
-    if (session && session.status === "active") {
-      completeQuiz.mutate({ sessionId: sessionId || "" });
+    if (!session || !sessionId) return;
+    if (session.status === "active") {
+      setLocation(`/quiz/${sessionId}`);
+      return;
     }
-  }, [session?.status]);
+    if (!completeQuiz.data && !completeQuiz.isPending) completeQuiz.mutate({ sessionId });
+  }, [session?.status, sessionId]);
 
-  // Load challenge context from sessionStorage
   useEffect(() => {
     const raw = sessionStorage.getItem("challenge_ctx");
-    if (raw) {
-      try {
-        const ctx = JSON.parse(raw) as { code: string; playerName: string };
-        if (ctx.code) setChallengeCtx(ctx);
-      } catch {}
-    }
+    if (!raw) return;
+    try {
+      const ctx = JSON.parse(raw) as { code: string; playerName: string };
+      if (ctx.code) setChallengeCtx(ctx);
+    } catch {}
   }, []);
 
-  // Submit challenge score once quiz is completed
   useEffect(() => {
     if (!challengeCtx || !session || session.status !== "completed" || challengeSubmitted.current) return;
     challengeSubmitted.current = true;
@@ -64,206 +75,180 @@ export default function Results() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ sessionId, playerName: challengeCtx.playerName }),
     })
-      .then(r => r.json())
+      .then(response => response.json())
       .then(data => { if (data.rank) setChallengeRank(data.rank); })
       .catch(() => {});
   }, [session?.status, challengeCtx, sessionId]);
 
-  // Check for streak milestone stored by Quiz.tsx
   useEffect(() => {
     const raw = sessionStorage.getItem("streak_milestone");
-    if (raw) {
-      try {
-        const data = JSON.parse(raw) as { streak: number; coins: number };
-        if (data.streak && data.coins) {
-          setTimeout(() => setMilestone(data), 600);
-        }
-      } catch {}
-      sessionStorage.removeItem("streak_milestone");
-    }
+    if (!raw) return;
+    try {
+      const data = JSON.parse(raw) as { streak: number; coins: number };
+      if (data.streak && data.coins) window.setTimeout(() => setMilestone(data), 600);
+    } catch {}
+    sessionStorage.removeItem("streak_milestone");
   }, []);
 
   const handleAdComplete = async () => {
-    const res = await authFetch("/api/battlepass/watch-ad-xp", { method: "POST" });
-    if (res.ok) {
-      toast({ title: `+${AD_XP} XP!`, description: "Battle Pass XP added — you're climbing the tiers!" });
+    const response = await authFetch("/api/battlepass/watch-ad-xp", { method: "POST" });
+    if (response.ok) {
+      toast({ title: `+${AD_XP} XP`, description: t.results.xpAdded });
       queryClient.invalidateQueries({ queryKey: getGetProfileQueryKey() });
     }
     setShowXpAd(false);
   };
 
-  if (isLoading || !session) {
+  const handlePlayAgain = async () => {
+    if (!session) return;
+    setStartingAgain(true);
+    try {
+      const response = await authFetch("/api/quiz/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ categoryId: session.categoryId, questionCount: session.totalQuestions }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.sessionId) throw new Error(data.error || t.results.startError);
+      setLocation(`/quiz/${data.sessionId}`);
+    } catch (error: any) {
+      toast({ title: t.results.startError, description: error?.message ?? t.results.tryAgain, variant: "destructive" });
+      setStartingAgain(false);
+    }
+  };
+
+  if (isLoading) {
     return (
-      <div className="flex-1 container max-w-2xl mx-auto px-4 py-16 flex flex-col gap-6">
-        <Skeleton className="h-12 w-64 mx-auto" />
-        <Skeleton className="h-48 w-full rounded-2xl" />
-        <div className="grid grid-cols-3 gap-4">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-28 rounded-xl" />
-          ))}
+      <GameShell index="RESULT / 00" label={t.results.label} exitLabel={t.results.exit} onExit={() => setLocation("/categories")} compact>
+        <div className="grid min-h-[70vh] content-center gap-10 lg:grid-cols-[1.2fr_0.8fr]">
+          <div className="space-y-5"><Skeleton className="h-4 w-36 rounded-none" /><Skeleton className="h-24 w-full max-w-xl rounded-none" /><Skeleton className="h-5 w-72 rounded-none" /></div>
+          <Skeleton className="aspect-square w-full max-w-sm justify-self-end rounded-full" />
         </div>
-        <Skeleton className="h-12 w-full rounded-xl" />
-      </div>
+      </GameShell>
     );
   }
 
-  const totalQuestions = session.totalQuestions || 10;
-  const score = session.score || 0;
-  const accuracy = Math.round((score / (totalQuestions * 10)) * 100);
+  if (isError || !session) {
+    return (
+      <GameShell index="RESULT / --" label={t.results.label} exitLabel={t.results.exit} onExit={() => setLocation("/categories")} compact>
+        <div className="mx-auto flex min-h-[70vh] max-w-xl flex-col items-start justify-center">
+          <span className="mb-8 text-7xl font-black leading-none text-primary/20">404</span>
+          <h1 className="text-4xl font-extrabold tracking-[-0.05em] sm:text-6xl">{t.results.notFound}</h1>
+          <p className="mt-5 max-w-md text-sm leading-7 text-muted-foreground">{t.results.notFoundHint}</p>
+          <div className="mt-8 flex flex-wrap gap-3">
+            <Button onClick={() => refetch()} className="rounded-none"><RotateCcw className="mr-2 h-4 w-4" />{t.results.retry}</Button>
+            <Button variant="outline" onClick={() => setLocation("/categories")} className="rounded-none">{t.results.exit}</Button>
+          </div>
+        </div>
+      </GameShell>
+    );
+  }
 
-  const getScoreGrade = () => {
-    if (accuracy >= 90) return { label: "Outstanding", color: "text-yellow-400", bg: "from-yellow-500/20 to-yellow-600/5" };
-    if (accuracy >= 70) return { label: "Great Job", color: "text-primary", bg: "from-primary/20 to-primary/5" };
-    if (accuracy >= 50) return { label: "Good Effort", color: "text-secondary", bg: "from-secondary/20 to-secondary/5" };
-    return { label: "Keep Practicing", color: "text-muted-foreground", bg: "from-muted/20 to-muted/5" };
-  };
+  const summary = completeQuiz.data;
+  const totalQuestions = summary?.totalQuestions ?? session.totalQuestions ?? 0;
+  const score = summary?.score ?? session.score ?? 0;
+  const correctAnswers = summary?.correctAnswers ?? session.correctAnswers ?? 0;
+  const wrongAnswers = Math.max(0, totalQuestions - correctAnswers);
+  const accuracy = totalQuestions > 0 ? Math.round((correctAnswers / totalQuestions) * 100) : 0;
+  const timeTaken = summary?.timeTaken ?? 0;
+  const rank = summary?.rank ?? null;
 
-  const grade = getScoreGrade();
+  const grade = accuracy >= 90
+    ? { label: t.results.grades.outstanding, note: t.results.gradeNotes.outstanding, tone: "text-primary" }
+    : accuracy >= 70
+      ? { label: t.results.grades.great, note: t.results.gradeNotes.great, tone: "text-foreground" }
+      : accuracy >= 50
+        ? { label: t.results.grades.good, note: t.results.gradeNotes.good, tone: "text-foreground" }
+        : { label: t.results.grades.practice, note: t.results.gradeNotes.practice, tone: "text-foreground" };
+
+  const metrics = [
+    { label: t.results.correct, value: correctAnswers, icon: Check, accent: "text-emerald-400" },
+    { label: t.results.incorrect, value: wrongAnswers, icon: X, accent: "text-rose-400" },
+    { label: t.results.time, value: timeTaken ? formatDuration(timeTaken) : "—", icon: Clock3, accent: "text-primary" },
+    { label: t.results.rank, value: rank ? `#${rank}` : "—", icon: Crown, accent: "text-amber-300" },
+  ];
 
   return (
-    <div className="flex-1 w-full bg-background py-12">
-      <div className="container max-w-2xl mx-auto px-4 flex flex-col gap-8">
-
-        {/* Result Header */}
-        <div className={cn("relative overflow-hidden rounded-2xl border border-border bg-gradient-to-br p-8 text-center", grade.bg)}>
-          <div className="absolute inset-0 bg-gradient-to-br from-background/50 to-transparent" />
-          <div className="relative z-10 flex flex-col items-center gap-4">
-            <div className="h-20 w-20 rounded-full bg-background/60 border border-border flex items-center justify-center">
-              <Trophy className={cn("h-10 w-10", grade.color)} />
-            </div>
-            <h1 className={cn("text-4xl font-bold", grade.color)}>{grade.label}</h1>
-            <p className="text-muted-foreground text-lg">
-              {session.categoryName ? `${session.categoryName} Quiz` : "Quiz"} Complete
-            </p>
-            <div className="flex items-baseline gap-2 mt-2">
-              <span className="text-7xl font-black text-foreground">{score}</span>
-              <span className="text-2xl text-muted-foreground font-medium">pts</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Stats Grid */}
-        <div className="grid grid-cols-3 gap-4">
-          <div className="rounded-xl border border-border bg-card p-5 flex flex-col items-center gap-2 text-center">
-            <Target className="h-6 w-6 text-primary" />
-            <span className="text-3xl font-bold">{accuracy}%</span>
-            <span className="text-xs text-muted-foreground uppercase tracking-wide">Accuracy</span>
-          </div>
-          <div className="rounded-xl border border-border bg-card p-5 flex flex-col items-center gap-2 text-center">
-            <CheckCircle2 className="h-6 w-6 text-green-500" />
-            <span className="text-3xl font-bold">{Math.round(accuracy / 10)}</span>
-            <span className="text-xs text-muted-foreground uppercase tracking-wide">Correct</span>
-          </div>
-          <div className="rounded-xl border border-border bg-card p-5 flex flex-col items-center gap-2 text-center">
-            <XCircle className="h-6 w-6 text-destructive" />
-            <span className="text-3xl font-bold">{totalQuestions - Math.round(accuracy / 10)}</span>
-            <span className="text-xs text-muted-foreground uppercase tracking-wide">Wrong</span>
-          </div>
-        </div>
-
-        {/* Battle Pass XP Boost Banner — shown to authenticated users */}
-        {isAuthenticated && (
-          <button
-            onClick={() => setShowXpAd(true)}
-            className="w-full rounded-2xl border border-indigo-500/25 bg-gradient-to-r from-indigo-500/10 to-cyan-500/5 p-4 flex items-center gap-4 hover:bg-indigo-500/15 transition-colors text-left group"
-          >
-            <div className="h-12 w-12 rounded-xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-              <Zap className="h-6 w-6 text-indigo-400" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-bold text-indigo-200 text-sm">Boost Your Battle Pass!</p>
-              <p className="text-xs text-white/45 mt-0.5">Watch a short ad to earn <span className="text-indigo-300 font-bold">+{AD_XP} XP</span> and climb the tiers faster.</p>
-            </div>
-            <ChevronRight className="h-5 w-5 text-indigo-400/60 shrink-0 group-hover:translate-x-0.5 transition-transform" />
-          </button>
-        )}
-
-        {/* Score Breakdown */}
-        <div className="rounded-xl border border-border bg-card p-6">
-          <h3 className="font-semibold text-lg mb-4 flex items-center gap-2">
-            <Zap className="h-5 w-5 text-primary" />
-            Score Breakdown
-          </h3>
-          <div className="space-y-3">
-            <div className="flex justify-between items-center py-2 border-b border-border">
-              <span className="text-muted-foreground">Total Questions</span>
-              <span className="font-semibold">{totalQuestions}</span>
-            </div>
-            <div className="flex justify-between items-center py-2 border-b border-border">
-              <span className="text-muted-foreground">Points per Correct</span>
-              <span className="font-semibold">10 pts</span>
-            </div>
-            <div className="flex justify-between items-center py-2">
-              <span className="font-bold text-lg">Final Score</span>
-              <span className={cn("font-black text-2xl", grade.color)}>{score} pts</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Challenge result banner */}
-        {challengeCtx && (
-          <div className={cn(
-            "rounded-xl border p-4 flex items-center gap-3",
-            challengeRank === 1
-              ? "border-yellow-500/40 bg-yellow-500/10"
-              : "border-primary/30 bg-primary/5"
-          )}>
-            {challengeRank === 1 ? (
-              <Crown className="h-6 w-6 text-yellow-400 shrink-0" />
-            ) : (
-              <Link2 className="h-6 w-6 text-primary shrink-0" />
-            )}
-            <div className="flex-1 min-w-0">
-              <p className="font-bold text-sm">
-                {challengeRank === 1 ? "🏆 You're #1 on this challenge!" : challengeRank ? `You ranked #${challengeRank} on this challenge!` : "Score submitted to challenge!"}
-              </p>
-              <p className="text-xs text-muted-foreground">See how you compare with everyone who played.</p>
-            </div>
-            <Button size="sm" onClick={() => setLocation(`/challenge/${challengeCtx.code}`)} className="shrink-0">
-              View Board <ChevronRight className="h-3.5 w-3.5 ml-1" />
+    <GameShell index="RESULT / 01" label={t.results.label} exitLabel={t.results.exit} onExit={() => setLocation("/categories")} compact>
+      <section className="grid min-h-[52vh] items-center gap-10 border-b border-white/10 pb-10 sm:pb-14 lg:grid-cols-[1.15fr_0.85fr] lg:gap-20">
+        <div>
+          <div className="flex items-center gap-3 text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground"><span className="text-primary">01</span><span className="h-px w-10 bg-white/15" />{session.categoryName || t.results.quiz}</div>
+          <h1 className={cn("mt-8 max-w-3xl text-[clamp(3.25rem,8vw,7.5rem)] font-extrabold leading-[0.82] tracking-[-0.075em]", grade.tone)}>{grade.label}</h1>
+          <p className="mt-7 max-w-xl text-sm leading-7 text-muted-foreground sm:text-base">{grade.note}</p>
+          <div className="mt-9 flex flex-wrap gap-3">
+            <Button onClick={handlePlayAgain} disabled={startingAgain} size="lg" className="focus-ring min-h-12 rounded-none px-6 text-xs font-extrabold uppercase tracking-[0.14em]">
+              {startingAgain ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RotateCcw className="mr-2 h-4 w-4" />}{startingAgain ? t.results.starting : t.results.playAgain}
             </Button>
+            <Button variant="outline" size="lg" onClick={() => setLocation(`/worlds/${session.categoryId}`)} className="focus-ring min-h-12 rounded-none border-white/15 px-6 text-xs font-bold uppercase tracking-[0.14em]"><LayoutGrid className="mr-2 h-4 w-4" />{t.results.backToWorld}</Button>
           </div>
-        )}
-
-        {/* Actions */}
-        <div className="flex flex-col sm:flex-row gap-4">
-          <Button
-            size="lg"
-            className="flex-1 h-14 text-lg bg-primary text-primary-foreground hover:bg-primary/90"
-            onClick={() => setLocation("/categories")}
-          >
-            <RotateCcw className="mr-2 h-5 w-5" />
-            Play Again
-          </Button>
-          <Button
-            size="lg"
-            variant="outline"
-            className="flex-1 h-14 text-lg border-border hover:bg-muted"
-            onClick={() => setLocation("/categories")}
-          >
-            <LayoutGrid className="mr-2 h-5 w-5" />
-            All Categories
-          </Button>
         </div>
-      </div>
 
-      {/* Watch Ad for +XP modal */}
-      {showXpAd && (
-        <WatchAdModal
-          xpMode={AD_XP}
-          onComplete={handleAdComplete}
-          onClose={() => setShowXpAd(false)}
-        />
-      )}
+        <motion.div
+          initial={reduceMotion ? false : { opacity: 0, scale: 0.9, rotate: -4 }}
+          animate={{ opacity: 1, scale: 1, rotate: 0 }}
+          transition={{ duration: 0.7, delay: 0.15, ease: [0.16, 1, 0.3, 1] }}
+          className="relative mx-auto aspect-square w-full max-w-[25rem]"
+        >
+          <div className="absolute inset-0 rounded-full border border-white/10" />
+          <div className="absolute inset-[10%] rounded-full border border-dashed border-primary/25" />
+          <div className="absolute inset-[22%] grid place-items-center rounded-full bg-primary text-primary-foreground">
+            <div className="text-center"><span className="block text-[clamp(4.5rem,11vw,7.5rem)] font-black leading-none tracking-[-0.09em]">{accuracy}</span><span className="mt-1 block text-[9px] font-extrabold uppercase tracking-[0.28em]">{t.results.accuracy} / 100</span></div>
+          </div>
+          <span className="absolute right-[4%] top-[18%] grid h-12 w-12 place-items-center rounded-full border border-white/15 bg-background text-primary"><Target className="h-5 w-5" /></span>
+          <span className="absolute bottom-[12%] left-[3%] flex items-center gap-2 bg-background px-3 py-2 text-[9px] font-bold uppercase tracking-[0.16em] text-muted-foreground"><Trophy className="h-4 w-4 text-primary" />{score} {t.results.points}</span>
+        </motion.div>
+      </section>
 
-      {/* Streak Milestone Modal */}
-      {milestone && (
-        <StreakMilestoneModal
-          streak={milestone.streak}
-          coinsAwarded={milestone.coins}
-          onClose={() => setMilestone(null)}
-        />
-      )}
-    </div>
+      <section className="grid grid-cols-2 border-b border-white/10 sm:grid-cols-4" aria-label={t.results.performance}>
+        {metrics.map((metric, index) => {
+          const Icon = metric.icon;
+          return (
+            <motion.div key={metric.label} initial={reduceMotion ? false : { opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, delay: 0.25 + index * 0.06, ease: [0.16, 1, 0.3, 1] }} className="flex min-h-28 flex-col justify-between border-white/10 p-4 even:border-l sm:min-h-36 sm:border-l sm:p-6 first:sm:border-l-0 rtl:even:border-l-0 rtl:even:border-r rtl:sm:border-l-0 rtl:sm:border-r rtl:first:sm:border-r-0">
+              <Icon className={cn("h-4 w-4", metric.accent)} />
+              <div><strong className="block text-3xl font-extrabold tracking-[-0.05em] sm:text-4xl">{metric.value}</strong><span className="mt-1 block text-[9px] font-bold uppercase tracking-[0.18em] text-muted-foreground">{metric.label}</span></div>
+            </motion.div>
+          );
+        })}
+      </section>
+
+      <div id="review-mistakes-slot" data-feature-slot="review-mistakes" />
+
+      <section className="grid gap-10 py-10 sm:py-14 lg:grid-cols-[1fr_22rem] lg:gap-20">
+        <div>
+          <div className="flex items-center gap-3 text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground"><span className="text-primary">02</span><span className="h-px w-10 bg-white/15" />{t.results.breakdown}</div>
+          <div className="mt-7 divide-y divide-white/10 border-y border-white/10">
+            <div className="flex min-h-14 items-center justify-between gap-4 text-sm"><span className="text-muted-foreground">{t.results.questions}</span><strong>{totalQuestions}</strong></div>
+            <div className="flex min-h-14 items-center justify-between gap-4 text-sm"><span className="text-muted-foreground">{t.results.correct}</span><strong>{correctAnswers} / {totalQuestions}</strong></div>
+            <div className="flex min-h-16 items-center justify-between gap-4"><span className="font-bold">{t.results.finalScore}</span><strong className="text-2xl font-black text-primary">{score} {t.results.points}</strong></div>
+          </div>
+
+          {challengeCtx && (
+            <div className="mt-8 flex items-center gap-4 border-y border-white/10 py-5">
+              {challengeRank === 1 ? <Crown className="h-6 w-6 shrink-0 text-amber-300" /> : <Link2 className="h-6 w-6 shrink-0 text-primary" />}
+              <div className="min-w-0 flex-1"><p className="font-bold">{challengeRank === 1 ? t.results.challengeFirst : challengeRank ? `${t.results.challengeRank} #${challengeRank}` : t.results.challengeSubmitted}</p><p className="mt-1 text-xs text-muted-foreground">{t.results.challengeHint}</p></div>
+              <button type="button" onClick={() => setLocation(`/challenge/${challengeCtx.code}`)} className="focus-ring flex min-h-11 items-center gap-2 text-[10px] font-bold uppercase tracking-[0.15em] text-primary">{t.results.viewBoard}<ChevronRight className="h-4 w-4 rtl:rotate-180" /></button>
+            </div>
+          )}
+        </div>
+
+        <aside className="lg:border-l lg:border-white/10 lg:pl-8 rtl:lg:border-l-0 rtl:lg:border-r rtl:lg:pl-0 rtl:lg:pr-8">
+          <Sparkles className="h-5 w-5 text-primary" />
+          <h2 className="mt-5 text-2xl font-extrabold tracking-[-0.04em]">{t.results.nextMove}</h2>
+          <p className="mt-3 text-sm leading-7 text-muted-foreground">{t.results.nextMoveHint}</p>
+          <button type="button" onClick={handlePlayAgain} disabled={startingAgain} className="focus-ring group mt-7 flex min-h-12 w-full items-center justify-between border-b border-primary py-3 text-[10px] font-bold uppercase tracking-[0.16em] text-primary disabled:opacity-50"><span>{t.results.playAgain}</span><ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1 rtl:rotate-180 rtl:group-hover:-translate-x-1" /></button>
+          <button type="button" onClick={() => setLocation("/categories")} className="focus-ring mt-3 flex min-h-12 w-full items-center justify-between border-b border-white/10 py-3 text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground hover:text-foreground"><span>{t.results.explore}</span><ArrowRight className="h-4 w-4 rtl:rotate-180" /></button>
+
+          {isAuthenticated && (
+            <button type="button" onClick={() => setShowXpAd(true)} className="focus-ring mt-9 flex w-full items-start gap-3 border border-white/10 p-4 text-left transition-colors hover:border-primary/40 rtl:text-right">
+              <Zap className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+              <span><strong className="block text-sm">{t.results.boost}</strong><span className="mt-1 block text-xs leading-5 text-muted-foreground">{t.results.boostHint.replace("{xp}", String(AD_XP))}</span></span>
+            </button>
+          )}
+        </aside>
+      </section>
+
+      {showXpAd && <WatchAdModal xpMode={AD_XP} onComplete={handleAdComplete} onClose={() => setShowXpAd(false)} />}
+      {milestone && <StreakMilestoneModal streak={milestone.streak} coinsAwarded={milestone.coins} onClose={() => setMilestone(null)} />}
+    </GameShell>
   );
 }

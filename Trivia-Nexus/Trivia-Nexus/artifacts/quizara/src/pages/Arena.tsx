@@ -15,6 +15,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import PowerUpBar, { type PowerUpItem } from "@/components/PowerUpBar";
 import PreGamePowerUpModal from "@/components/PreGamePowerUpModal";
+import { useI18n } from "@/lib/i18n";
 
 type Phase =
   | "lobby"
@@ -103,6 +104,7 @@ function freshAnswerState(): AnswerState {
 }
 
 export default function Arena() {
+  const { t } = useI18n();
   const { isAuthenticated, login } = useSupabaseAuth();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
@@ -289,20 +291,20 @@ export default function Arena() {
               const updated = prev.map(p => p.effect === effect ? { ...p, quantity: p.quantity - 1 } : p);
               return updated.filter(p => p.quantity > 0);
             });
-            toast({ title: "✂️ 50/50 activated!" });
+            toast({ title: t.arena.fiftyActivated });
           } else if (effect === "shield" && msg.active) {
             setArenaShieldActive(true);
             setArenaUsedEffects(prev => new Set([...prev, effect]));
             setPowerUpInventory(prev => prev.map(p => p.effect === effect ? { ...p, quantity: p.quantity - 1 } : p).filter(p => p.quantity > 0));
-            toast({ title: "🛡️ Shield activated!" });
+            toast({ title: t.arena.shieldActivated });
           } else if (effect === "steal_question") {
             if (msg.success) {
               setAllScores(prev => ({ ...prev, [profile?.id ?? ""]: msg.newScore }));
               setPowerUpInventory(prev => prev.map(p => p.effect === effect ? { ...p, quantity: p.quantity - 1 } : p).filter(p => p.quantity > 0));
-              toast({ title: `🎯 Stole ${msg.pointsStolen} pts from ${msg.targetUsername}!` });
+              toast({ title: t.arena.stoleFrom.replace("{points}", String(msg.pointsStolen)).replace("{username}", msg.targetUsername) });
             } else {
-              const reason = msg.reason === "blocked" ? "Their shield blocked it!" : msg.reason === "no_points" ? "Opponent had no points to steal" : "Steal failed";
-              toast({ title: "🎯 Steal failed", description: reason, variant: "destructive" });
+              const reason = msg.reason === "blocked" ? t.arena.shieldBlockedSteal : msg.reason === "no_points" ? t.arena.opponentNoPoints : t.arena.stealFailedGeneric;
+              toast({ title: t.arena.stealFailedTitle, description: reason, variant: "destructive" });
             }
           }
           break;
@@ -310,12 +312,12 @@ export default function Arena() {
 
         case "SHIELD_TRIGGERED":
           setArenaShieldActive(false);
-          toast({ title: `🛡️ Shield blocked ${msg.fromUsername}'s steal!` });
+          toast({ title: t.arena.shieldBlockedTitle.replace("{username}", msg.fromUsername) });
           break;
 
         case "POWER_UP_RECEIVED":
           if (msg.effect === "steal_question") {
-            toast({ title: `🎯 ${msg.fromUsername} stole ${msg.pointsStolen} pts from you!`, variant: "destructive" });
+            toast({ title: t.arena.stolenFromYou.replace("{username}", msg.fromUsername).replace("{points}", String(msg.pointsStolen)), variant: "destructive" });
           }
           break;
 
@@ -366,7 +368,7 @@ export default function Arena() {
           break;
 
         case "OPPONENT_LEFT":
-          toast({ title: `${msg.username ?? "A player"} disconnected`, variant: "destructive" });
+          toast({ title: t.arena.playerDisconnected.replace("{username}", msg.username ?? t.arena.aPlayer), variant: "destructive" });
           if (phase === "friends_lobby") {
             setLobbyPlayers(prev => prev.filter(p => p.userId !== msg.userId));
           } else {
@@ -377,7 +379,7 @@ export default function Arena() {
           break;
 
         case "ERROR":
-          toast({ title: "Error", description: msg.message, variant: "destructive" });
+          toast({ title: t.arena.error, description: msg.message, variant: "destructive" });
           if (phase === "joining_room" || phase === "searching") setPhase("lobby");
           break;
       }
@@ -472,9 +474,9 @@ export default function Arena() {
         <div className="h-20 w-20 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center">
           <Swords className="h-10 w-10 text-primary" />
         </div>
-        <h2 className="text-2xl font-bold">Sign in to play Arena</h2>
-        <p className="text-muted-foreground max-w-sm">Battle other players in real-time trivia matches.</p>
-        <Button onClick={() => login()} size="lg" className="bg-primary text-primary-foreground">Sign In</Button>
+        <h2 className="text-2xl font-bold">{t.arena.signInTitle}</h2>
+        <p className="text-muted-foreground max-w-sm">{t.arena.signInDesc}</p>
+        <Button onClick={() => login()} size="lg" className="bg-primary text-primary-foreground">{t.arena.signInButton}</Button>
       </div>
     );
   }
@@ -500,11 +502,11 @@ export default function Arena() {
           onClick={() => { handleLeave(); setLocation("/"); }}
           className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
         >
-          <ArrowLeft className="h-4 w-4" /> Back
+          <ArrowLeft className="h-4 w-4" /> {t.arena.back}
         </button>
         <div className="flex items-center gap-2">
           <div className={cn("h-2 w-2 rounded-full", connected ? "bg-green-400" : "bg-red-400")} />
-          <span className="text-xs text-muted-foreground">{connected ? "Connected" : "Disconnected"}</span>
+          <span className="text-xs text-muted-foreground">{connected ? t.arena.connected : t.arena.disconnected}</span>
         </div>
       </div>
 
@@ -515,13 +517,13 @@ export default function Arena() {
             <div className="h-20 w-20 rounded-full bg-gradient-to-br from-secondary/30 to-primary/30 border border-secondary/30 flex items-center justify-center mx-auto">
               <Swords className="h-10 w-10 text-primary" />
             </div>
-            <h1 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-secondary to-primary">Arena</h1>
-            <p className="text-muted-foreground text-sm">Battle players in real-time trivia</p>
+            <h1 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-secondary to-primary">{t.arena.title}</h1>
+            <p className="text-muted-foreground text-sm">{t.arena.subtitle}</p>
           </div>
 
           {!connected && (
             <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4 flex items-center gap-3 text-sm text-red-400">
-              <WifiOff className="h-5 w-5 shrink-0" /> Connecting to server…
+              <WifiOff className="h-5 w-5 shrink-0" /> {t.arena.connectingServer}
             </div>
           )}
 
@@ -536,8 +538,8 @@ export default function Arena() {
                   <Users className="h-7 w-7 text-primary" />
                 </div>
                 <div>
-                  <p className="font-bold text-lg text-foreground">Online Game</p>
-                  <p className="text-sm text-muted-foreground">Get matched with a random opponent instantly</p>
+                  <p className="font-bold text-lg text-foreground">{t.arena.onlineGame}</p>
+                  <p className="text-sm text-muted-foreground">{t.arena.onlineGameDesc}</p>
                 </div>
               </div>
             </button>
@@ -548,8 +550,8 @@ export default function Arena() {
                   <UserPlus className="h-7 w-7 text-secondary" />
                 </div>
                 <div>
-                  <p className="font-bold text-lg text-foreground">Friends Game</p>
-                  <p className="text-sm text-muted-foreground">Create a room or join with a code — up to 6 players</p>
+                  <p className="font-bold text-lg text-foreground">{t.arena.friendsGame}</p>
+                  <p className="text-sm text-muted-foreground">{t.arena.friendsGameDesc}</p>
                 </div>
               </div>
 
@@ -559,14 +561,14 @@ export default function Arena() {
                 variant="outline"
                 className="border-secondary/40 text-secondary hover:bg-secondary/10 w-full"
               >
-                Create Room
+                {t.arena.createRoom}
               </Button>
 
               <div className="flex gap-2">
                 <Input
                   value={joinCode}
                   onChange={e => setJoinCode(e.target.value.toUpperCase())}
-                  placeholder="Enter room code"
+                  placeholder={t.arena.enterCode}
                   maxLength={6}
                   className="bg-muted/30 border-border font-mono uppercase tracking-widest text-center"
                   onKeyDown={e => e.key === "Enter" && handleJoinRoom()}
@@ -576,19 +578,19 @@ export default function Arena() {
                   onClick={handleJoinRoom}
                   className="bg-secondary text-secondary-foreground shrink-0"
                 >
-                  Join
+                  {t.arena.joinRoomBtn}
                 </Button>
               </div>
             </div>
           </div>
 
           <div className="rounded-xl border border-border bg-card/50 p-4 space-y-2">
-            <h3 className="text-sm font-semibold">How Arena Works</h3>
+            <h3 className="text-sm font-semibold">{t.arena.howItWorks}</h3>
             <div className="grid grid-cols-3 gap-3 text-center text-xs text-muted-foreground">
               {[
-                { icon: "🎯", label: "Answer together, advance together" },
-                { icon: "⚡", label: "Speed = bonus points (up to 150/q)" },
-                { icon: "🏆", label: "Highest total score wins" },
+                { icon: "🎯", label: t.arena.step1 },
+                { icon: "⚡", label: t.arena.step2 },
+                { icon: "🏆", label: t.arena.step3 },
               ].map(({ icon, label }) => (
                 <div key={label} className="space-y-1">
                   <div className="text-2xl">{icon}</div>
@@ -604,13 +606,13 @@ export default function Arena() {
       {phase === "room_setup" && (
         <div className="space-y-6 py-4">
           <div className="text-center space-y-1">
-            <h2 className="text-2xl font-black">Create a Room</h2>
-            <p className="text-sm text-muted-foreground">Configure your match settings</p>
+            <h2 className="text-2xl font-black">{t.arena.roomSetupTitle}</h2>
+            <p className="text-sm text-muted-foreground">{t.arena.roomSetupSubtitle}</p>
           </div>
 
           <div className="rounded-2xl border border-border bg-card/60 p-6 space-y-6">
             <div className="space-y-3">
-              <label className="text-sm font-semibold">Number of Questions</label>
+              <label className="text-sm font-semibold">{t.arena.numQuestions}</label>
               <div className="flex items-center gap-4">
                 <button
                   onClick={() => setQuestionCount(q => Math.max(5, q - 5))}
@@ -620,7 +622,7 @@ export default function Arena() {
                 </button>
                 <div className="flex-1 text-center">
                   <span className="text-4xl font-black text-primary">{questionCount}</span>
-                  <p className="text-xs text-muted-foreground mt-1">questions</p>
+                  <p className="text-xs text-muted-foreground mt-1">{t.arena.questions}</p>
                 </div>
                 <button
                   onClick={() => setQuestionCount(q => Math.min(50, q + 5))}
@@ -648,16 +650,16 @@ export default function Arena() {
             </div>
 
             <div className="rounded-xl border border-border bg-muted/10 p-4 text-sm text-muted-foreground space-y-1">
-              <p>• Up to <span className="text-foreground font-semibold">6 players</span> can join</p>
-              <p>• Each player picks <span className="text-foreground font-semibold">3 categories</span></p>
-              <p>• Answer speed determines your bonus points</p>
+              <p>• {t.arena.playersLimit}</p>
+              <p>• {t.arena.pickCategories}</p>
+              <p>• {t.arena.speedBonus}</p>
             </div>
           </div>
 
           <div className="flex gap-3">
-            <Button variant="outline" onClick={() => setPhase("lobby")} className="flex-1">Back</Button>
+            <Button variant="outline" onClick={() => setPhase("lobby")} className="flex-1">{t.arena.back}</Button>
             <Button disabled={!connected} onClick={handleCreateRoom} className="flex-1 bg-secondary text-secondary-foreground">
-              Create Room
+              {t.arena.createRoom}
             </Button>
           </div>
         </div>
@@ -673,10 +675,10 @@ export default function Arena() {
             </div>
           </div>
           <div>
-            <p className="text-xl font-bold">Finding your opponent…</p>
-            <p className="text-muted-foreground text-sm mt-1">Matching you with someone online</p>
+            <p className="text-xl font-bold">{t.arena.findingOpponent}</p>
+            <p className="text-muted-foreground text-sm mt-1">{t.arena.matchingOnline}</p>
           </div>
-          <Button variant="ghost" onClick={handleLeave} className="text-muted-foreground">Cancel</Button>
+          <Button variant="ghost" onClick={handleLeave} className="text-muted-foreground">{t.arena.cancel}</Button>
         </div>
       )}
 
@@ -689,8 +691,8 @@ export default function Arena() {
               <UserPlus className="h-10 w-10 text-secondary" />
             </div>
           </div>
-          <p className="text-xl font-bold">Joining room…</p>
-          <Button variant="ghost" onClick={handleLeave} className="text-muted-foreground">Cancel</Button>
+          <p className="text-xl font-bold">{t.arena.joiningRoom}</p>
+          <Button variant="ghost" onClick={handleLeave} className="text-muted-foreground">{t.arena.cancel}</Button>
         </div>
       )}
 
@@ -698,7 +700,7 @@ export default function Arena() {
       {phase === "creating_room" && (
         <div className="flex flex-col items-center justify-center py-24 gap-6 text-center">
           <Loader2 className="h-12 w-12 animate-spin text-secondary" />
-          <p className="text-xl font-bold">Creating room…</p>
+          <p className="text-xl font-bold">{t.arena.creatingRoom}</p>
         </div>
       )}
 
@@ -706,12 +708,12 @@ export default function Arena() {
       {phase === "friends_lobby" && (
         <div className="space-y-5">
           <div className="text-center space-y-1">
-            <h2 className="text-2xl font-black">Waiting Room</h2>
-            <p className="text-sm text-muted-foreground">Share the code — everyone must ready up to start</p>
+            <h2 className="text-2xl font-black">{t.arena.waitingRoom}</h2>
+            <p className="text-sm text-muted-foreground">{t.arena.waitingRoomSubtitle}</p>
           </div>
 
           <div className="rounded-2xl border-2 border-secondary/30 bg-secondary/5 p-5 flex flex-col items-center gap-3">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">Room Code</p>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">{t.arena.roomCode}</p>
             <div className="flex items-center gap-3">
               <span className="text-4xl font-black tracking-[0.3em] text-secondary font-mono">{roomCode}</span>
               <button
@@ -722,17 +724,17 @@ export default function Arena() {
               </button>
             </div>
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span>{lobbyPlayers.length}/6 players</span>
+              <span>{lobbyPlayers.length}/6 {t.arena.players}</span>
               <span>·</span>
-              <span>{lobbyPlayers.filter(p => p.isReady).length}/{lobbyPlayers.length} ready</span>
+              <span>{lobbyPlayers.filter(p => p.isReady).length}/{lobbyPlayers.length} {t.arena.ready}</span>
               <span>·</span>
-              <span>{questionCount} questions</span>
+              <span>{questionCount} {t.arena.questions}</span>
             </div>
           </div>
 
           <div className="rounded-2xl border border-border bg-card/60 overflow-hidden">
             <div className="px-4 py-3 border-b border-border/50 bg-muted/10">
-              <p className="text-sm font-semibold">Players</p>
+              <p className="text-sm font-semibold">{t.arena.playersLabel}</p>
             </div>
             <div className="divide-y divide-border/30">
               {lobbyPlayers.map(p => (
@@ -747,7 +749,7 @@ export default function Arena() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold truncate">{p.username}</p>
-                    <p className="text-xs text-muted-foreground">{p.isHost ? "Host" : "Player"}</p>
+                    <p className="text-xs text-muted-foreground">{p.isHost ? t.arena.host : t.arena.player}</p>
                   </div>
                   <div className={cn(
                     "flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold",
@@ -756,7 +758,7 @@ export default function Arena() {
                       : "bg-muted/30 text-muted-foreground border border-border"
                   )}>
                     {p.isReady ? <CheckCircle2 className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
-                    {p.isReady ? "Ready" : "Not Ready"}
+                    {p.isReady ? t.arena.readyStatus : t.arena.notReady}
                   </div>
                 </div>
               ))}
@@ -765,7 +767,7 @@ export default function Arena() {
                   <div className="h-8 w-8 rounded-full border-2 border-dashed border-border flex items-center justify-center">
                     <Users className="h-3.5 w-3.5 text-muted-foreground" />
                   </div>
-                  <p className="text-sm text-muted-foreground">Waiting for player…</p>
+                  <p className="text-sm text-muted-foreground">{t.arena.waitingForPlayer}</p>
                 </div>
               ))}
             </div>
@@ -774,12 +776,12 @@ export default function Arena() {
           {lobbyPlayers.length < 2 && (
             <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 flex items-center gap-2 text-sm text-amber-400">
               <Shield className="h-4 w-4 shrink-0" />
-              Need at least 2 players to start
+              {t.arena.needTwoPlayers}
             </div>
           )}
 
           <div className="flex gap-3">
-            <Button variant="outline" onClick={handleLeave} className="flex-1">Leave Room</Button>
+            <Button variant="outline" onClick={handleLeave} className="flex-1">{t.arena.leaveRoom}</Button>
             <Button
               onClick={handleToggleReady}
               disabled={lobbyPlayers.length < 2}
@@ -790,13 +792,13 @@ export default function Arena() {
                   : "bg-green-600 hover:bg-green-500 text-white"
               )}
             >
-              {isReady ? "Unready" : "Ready!"}
+              {isReady ? t.arena.unready : t.arena.readyExclaim}
             </Button>
           </div>
 
           {lobbyPlayers.length >= 2 && lobbyPlayers.every(p => p.isReady) && (
             <div className="rounded-xl bg-green-500/10 border border-green-500/30 p-3 text-center text-sm text-green-400 font-semibold">
-              All players ready — starting…
+              {t.arena.allReady}
             </div>
           )}
         </div>
@@ -806,16 +808,16 @@ export default function Arena() {
       {phase === "category_selection" && (
         <div className="space-y-4">
           <div className="text-center space-y-1">
-            <h2 className="text-xl font-black">Pick Your 3 Categories</h2>
+            <h2 className="text-xl font-black">{t.arena.pickCategoriesTitle}</h2>
             <p className="text-sm text-muted-foreground">
-              {categoriesProgress.selected}/{categoriesProgress.total} players have confirmed
+              {t.arena.confirmedCount.replace("{selected}", String(categoriesProgress.selected)).replace("{total}", String(categoriesProgress.total))}
             </p>
           </div>
 
           {opponents.length > 0 && (
             <div className="rounded-xl border border-border bg-card/60 p-3 space-y-2">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs text-muted-foreground">vs</span>
+                <span className="text-xs text-muted-foreground">{t.arena.vs}</span>
                 {opponents.map(o => (
                   <div key={o.userId} className="flex items-center gap-1.5">
                     <Avatar username={o.username} imageUrl={o.profileImageUrl} size="sm" />
@@ -828,12 +830,12 @@ export default function Arena() {
                 if (!picks) return null;
                 return (
                   <div key={`picks-${o.userId}`} className="flex items-center gap-2 flex-wrap text-xs">
-                    <span className="text-muted-foreground shrink-0">{o.username} picked:</span>
+                    <span className="text-muted-foreground shrink-0">{o.username} {t.arena.picked}</span>
                     {picks.map(catId => {
                       const cat = categories.find(c => c.id === catId);
                       return (
                         <span key={catId} className="px-2 py-0.5 rounded-full bg-muted/40 border border-border text-foreground">
-                          {cat?.icon ?? "📚"} {cat?.name ?? "Unknown"}
+                          {cat?.icon ?? "📚"} {cat?.name ?? t.arena.unknown}
                         </span>
                       );
                     })}
@@ -876,9 +878,9 @@ export default function Arena() {
           </div>
 
           <div className="flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">{selectedCats.length}/3 selected</span>
+            <span className="text-sm text-muted-foreground">{t.arena.selectedCount.replace("{count}", String(selectedCats.length))}</span>
             <Button onClick={handleSubmitCategories} disabled={selectedCats.length !== 3} className="bg-primary text-primary-foreground">
-              Confirm
+              {t.arena.confirm}
             </Button>
           </div>
         </div>
@@ -889,9 +891,9 @@ export default function Arena() {
         <div className="flex flex-col items-center justify-center py-24 gap-6 text-center">
           <Loader2 className="h-12 w-12 animate-spin text-primary" />
           <div>
-            <p className="text-xl font-bold">Waiting for others to pick categories…</p>
+            <p className="text-xl font-bold">{t.arena.waitingForCategories}</p>
             <p className="text-muted-foreground text-sm mt-1">
-              {categoriesProgress.selected}/{categoriesProgress.total} confirmed
+              {t.arena.confirmedOf.replace("{selected}", String(categoriesProgress.selected)).replace("{total}", String(categoriesProgress.total))}
             </p>
           </div>
           <div className="flex gap-2">
@@ -927,9 +929,9 @@ export default function Arena() {
                         : "text-muted-foreground"
                 )}>
                   {answerState.revealed ? (
-                    <><CheckCircle2 className="h-3.5 w-3.5" /> Done</>
+                    <><CheckCircle2 className="h-3.5 w-3.5" /> {t.arena.done}</>
                   ) : answerState.submitted ? (
-                    <><Hourglass className="h-3.5 w-3.5" /> Waiting</>
+                    <><Hourglass className="h-3.5 w-3.5" /> {t.arena.waiting}</>
                   ) : (
                     <><Clock className="h-3.5 w-3.5" /> {timeLeft}s</>
                   )}
@@ -940,7 +942,7 @@ export default function Arena() {
                   <div key={p.userId} className="flex items-center gap-1.5">
                     <Avatar username={p.username} imageUrl={"imageUrl" in p ? p.imageUrl : null} size="sm" />
                     <div className="text-right">
-                      <p className="text-xs text-muted-foreground truncate max-w-[60px]">{p.userId === profile?.id ? "You" : p.username}</p>
+                      <p className="text-xs text-muted-foreground truncate max-w-[60px]">{p.userId === profile?.id ? t.arena.you : p.username}</p>
                       <p className={cn("text-sm font-black", p.userId === profile?.id ? "text-primary" : "text-secondary")}>
                         {allScores[p.userId] ?? 0}
                       </p>
@@ -967,8 +969,8 @@ export default function Arena() {
             )}>
               <div className={cn("h-2 w-2 rounded-full", opponentAnswered ? "bg-amber-400 animate-pulse" : "bg-muted-foreground/40")} />
               {opponentAnswered
-                ? "Opponent has answered — waiting for you!"
-                : "Opponent is thinking…"}
+                ? t.arena.opponentAnsweredStatus
+                : t.arena.opponentThinking}
             </div>
           )}
 
@@ -1054,10 +1056,10 @@ export default function Arena() {
               <div className="absolute inset-0 rounded-xl bg-background/60 backdrop-blur-[2px] flex items-center justify-center">
                 <div className="flex flex-col items-center gap-2 text-center">
                   <Hourglass className="h-8 w-8 text-amber-400 animate-pulse" />
-                  <p className="text-sm font-bold text-white">Waiting for opponent…</p>
+                  <p className="text-sm font-bold text-white">{t.arena.waitingForOpponentOverlay}</p>
                   {answerState.correct !== null && (
                     <p className={cn("text-xs font-semibold", answerState.correct ? "text-green-400" : "text-red-400")}>
-                      {answerState.correct ? `✓ Correct! ${answerState.pointsEarned} pts` : "✗ Wrong"}
+                      {answerState.correct ? t.arena.correctPts.replace("{points}", String(answerState.pointsEarned)) : t.arena.wrongAnswer}
                     </p>
                   )}
                 </div>
@@ -1068,7 +1070,7 @@ export default function Arena() {
           {/* Question result reveal */}
           {answerState.revealed && questionResult && (
             <div className="rounded-xl border border-border bg-card/80 p-4 space-y-3">
-              <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest">Round Results</p>
+              <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest">{t.arena.roundResults}</p>
               <div className="space-y-2">
                 {questionResult.results.map(r => {
                   const isMe = r.userId === profile?.id;
@@ -1085,9 +1087,9 @@ export default function Arena() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className={cn("text-sm font-semibold", isMe ? "text-primary" : "text-foreground")}>
-                          {isMe ? "You" : r.username}
+                          {isMe ? t.arena.you : r.username}
                         </p>
-                        <p className="text-xs text-muted-foreground">{r.correct ? `Answered in ${speedSec}s` : "No correct answer"}</p>
+                        <p className="text-xs text-muted-foreground">{r.correct ? t.arena.answeredIn.replace("{sec}", speedSec) : t.arena.noCorrectAnswer}</p>
                       </div>
                       <div className="text-right shrink-0">
                         {r.correct ? (
@@ -1104,7 +1106,7 @@ export default function Arena() {
                 })}
               </div>
               {currentQIdx + 1 < questions.length && (
-                <p className="text-xs text-center text-muted-foreground animate-pulse">Next question coming up…</p>
+                <p className="text-xs text-center text-muted-foreground animate-pulse">{t.arena.nextQuestionComingUp}</p>
               )}
             </div>
           )}
@@ -1120,31 +1122,31 @@ export default function Arena() {
                 <div className="h-24 w-24 rounded-full bg-yellow-500/15 border-2 border-yellow-500/30 flex items-center justify-center mx-auto mb-4">
                   <Crown className="h-12 w-12 text-yellow-400" />
                 </div>
-                <h2 className="text-3xl font-black text-yellow-400">Victory!</h2>
-                <p className="text-muted-foreground mt-1">You came out on top!</p>
+                <h2 className="text-3xl font-black text-yellow-400">{t.arena.victory}</h2>
+                <p className="text-muted-foreground mt-1">{t.arena.cameOutOnTop}</p>
               </>
             ) : gameResult.winner === null ? (
               <>
                 <div className="h-24 w-24 rounded-full bg-primary/15 border-2 border-primary/30 flex items-center justify-center mx-auto mb-4">
                   <Star className="h-12 w-12 text-primary" />
                 </div>
-                <h2 className="text-3xl font-black text-primary">Draw!</h2>
-                <p className="text-muted-foreground mt-1">Perfectly matched</p>
+                <h2 className="text-3xl font-black text-primary">{t.arena.draw}</h2>
+                <p className="text-muted-foreground mt-1">{t.arena.perfectlyMatched}</p>
               </>
             ) : (
               <>
                 <div className="h-24 w-24 rounded-full bg-muted/20 border-2 border-border flex items-center justify-center mx-auto mb-4">
                   <Trophy className="h-12 w-12 text-muted-foreground" />
                 </div>
-                <h2 className="text-3xl font-black text-muted-foreground">Defeat</h2>
-                <p className="text-muted-foreground mt-1">Better luck next time</p>
+                <h2 className="text-3xl font-black text-muted-foreground">{t.arena.defeat}</h2>
+                <p className="text-muted-foreground mt-1">{t.arena.betterLuckNextTime}</p>
               </>
             )}
           </div>
 
           <div className="rounded-2xl border border-border bg-card/60 overflow-hidden">
             <div className="px-4 py-3 border-b border-border/50 bg-muted/10">
-              <p className="text-sm font-semibold">Final Scores</p>
+              <p className="text-sm font-semibold">{t.arena.finalScores}</p>
             </div>
             <div className="divide-y divide-border/30">
               {[{ userId: profile?.id ?? "", username: profile?.username || "Me", profileImageUrl: profile?.profileImageUrl ?? null }, ...opponents]
@@ -1163,8 +1165,8 @@ export default function Arena() {
                     </span>
                     <Avatar username={p.username} imageUrl={p.profileImageUrl} size="sm" />
                     <span className={cn("flex-1 text-sm font-semibold text-left truncate", p.userId === profile?.id ? "text-primary" : "")}>
-                      {p.userId === profile?.id ? "You" : p.username}
-                      {gameResult.winner === p.userId && <span className="ml-2 text-xs text-yellow-400">Winner!</span>}
+                      {p.userId === profile?.id ? t.arena.you : p.username}
+                      {gameResult.winner === p.userId && <span className="ml-2 text-xs text-yellow-400">{t.arena.winner}</span>}
                     </span>
                     <span className="text-lg font-black text-foreground">{p.score}</span>
                   </div>
@@ -1177,9 +1179,9 @@ export default function Arena() {
               onClick={() => { setPhase("lobby"); setOpponents([]); setGameResult(null); setLobbyPlayers([]); }}
               className="bg-primary text-primary-foreground"
             >
-              Play Again
+              {t.arena.playAgain}
             </Button>
-            <Button variant="outline" onClick={() => setLocation("/")}>Home</Button>
+            <Button variant="outline" onClick={() => setLocation("/")}>{t.arena.home}</Button>
           </div>
         </div>
       )}

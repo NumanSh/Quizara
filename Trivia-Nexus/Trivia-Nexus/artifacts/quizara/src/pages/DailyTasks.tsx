@@ -12,6 +12,8 @@ import {
 import { cn } from "@/lib/utils";
 import { Link } from "wouter";
 import { authFetch } from "@/lib/api";
+import { getGetProfileQueryKey } from "@workspace/api-client-react";
+import { useI18n } from "@/lib/i18n";
 
 interface DailyTask {
   id: string;
@@ -37,8 +39,8 @@ const TYPE_CONFIG: Record<string, { icon: React.ElementType; color: string; labe
   correct_answers: { icon: CheckCircle2, color: "text-green-400",  label: "Correct Answers" },
 };
 
-function TaskCard({ task, onClaim }: { task: DailyTask; onClaim: (id: string) => void }) {
-  const { isAuthenticated } = useSupabaseAuth();
+function TaskCard({ task, onClaim, claiming }: { task: DailyTask; onClaim: (id: string) => void; claiming: boolean }) {
+  const { t } = useI18n();
   const cfg = TYPE_CONFIG[task.type] ?? { icon: Star, color: "text-blue-400", label: task.type };
   const Icon = cfg.icon;
   const pct = Math.min(100, Math.round((task.currentValue / task.targetValue) * 100));
@@ -113,28 +115,23 @@ function TaskCard({ task, onClaim }: { task: DailyTask; onClaim: (id: string) =>
               </span>
             </div>
 
-            {!isAuthenticated ? (
-              <Link href="/login">
-                <Button size="sm" variant="ghost" className="h-7 text-xs gap-1">
-                  <Lock className="h-3 w-3" /> Sign in
-                </Button>
-              </Link>
-            ) : task.isClaimed ? (
+            {task.isClaimed ? (
               <span className="text-xs text-green-400 font-semibold flex items-center gap-1">
-                <CheckCircle2 className="h-3.5 w-3.5" /> Claimed
+                <CheckCircle2 className="h-3.5 w-3.5" /> {t.dailyTasksPage.claimed}
               </span>
             ) : task.isCompleted ? (
               <Button
                 size="sm"
                 className="h-7 text-xs bg-secondary hover:bg-secondary/90 gap-1"
+                disabled={claiming}
                 onClick={() => onClaim(task.id)}
               >
-                <Gift className="h-3.5 w-3.5" /> Claim
+                <Gift className="h-3.5 w-3.5" /> {claiming ? t.dailyTasksPage.claiming : t.dailyTasksPage.claim}
               </Button>
             ) : (
               <Link href={task.categoryId ? `/worlds/${task.categoryId}` : "/categories"}>
                 <Button size="sm" variant="outline" className="h-7 text-xs border-white/10 hover:border-white/20">
-                  Play →
+                  {t.dailyTasksPage.play}
                 </Button>
               </Link>
             )}
@@ -146,6 +143,7 @@ function TaskCard({ task, onClaim }: { task: DailyTask; onClaim: (id: string) =>
 }
 
 export default function DailyTasks() {
+  const { t } = useI18n();
   const { isAuthenticated } = useSupabaseAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -158,6 +156,7 @@ export default function DailyTasks() {
       if (!res.ok) throw new Error("Failed to load tasks");
       return res.json();
     },
+    enabled: isAuthenticated,
     refetchInterval: 60_000,
   });
 
@@ -176,13 +175,13 @@ export default function DailyTasks() {
     onMutate: (id) => setClaimingId(id),
     onSuccess: (data) => {
       toast({
-        title: "Reward claimed!",
-        description: `+${data.coinReward} coins  +${data.xpReward} XP`,
+        title: t.dailyTasksPage.rewardClaimed,
+        description: t.dailyTasksPage.rewardClaimedDesc.replace("{coins}", String(data.coinReward)).replace("{xp}", String(data.xpReward)),
       });
       qc.invalidateQueries({ queryKey: ["daily-tasks"] });
-      qc.invalidateQueries({ queryKey: ["/api/profile"] });
+      qc.invalidateQueries({ queryKey: getGetProfileQueryKey() });
     },
-    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+    onError: (err: Error) => toast({ title: t.dailyTasksPage.error, description: err.message, variant: "destructive" }),
     onSettled: () => setClaimingId(null),
   });
 
@@ -191,7 +190,28 @@ export default function DailyTasks() {
   const claimedCount = tasks.filter(t => t.isClaimed).length;
   const allDone = tasks.length > 0 && claimedCount === tasks.length;
 
-  const today = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+  const today = new Date().toLocaleDateString(t.lang === "ar" ? "ar" : "en-US", { weekday: "long", month: "long", day: "numeric" });
+
+  if (!isAuthenticated) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center gap-6 p-8 text-center">
+        <div className="h-16 w-16 rounded-full bg-secondary/15 flex items-center justify-center">
+          <ClipboardList className="h-8 w-8 text-secondary" />
+        </div>
+        <div>
+          <h2 className="text-2xl font-black text-foreground">{t.dailyTasksPage.title}</h2>
+          <p className="text-sm text-muted-foreground max-w-xs mt-2">
+            {t.dailyTasksPage.signInDesc}
+          </p>
+        </div>
+        <Link href="/login">
+          <Button className="bg-secondary hover:bg-secondary/90 text-white font-bold px-8 gap-2">
+            <Lock className="h-4 w-4" /> {t.dailyTasksPage.signInBtn}
+          </Button>
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8 space-y-6">
@@ -200,9 +220,9 @@ export default function DailyTasks() {
         <div>
           <div className="flex items-center gap-2 mb-1">
             <ClipboardList className="h-5 w-5 text-secondary" />
-            <h1 className="text-2xl font-black text-foreground">Daily Tasks</h1>
+            <h1 className="text-2xl font-black text-foreground">{t.dailyTasksPage.title}</h1>
             <Badge className="text-[10px] bg-secondary/20 text-secondary border-secondary/30">
-              Resets at midnight
+              {t.dailyTasksPage.resetsAtMidnight}
             </Badge>
           </div>
           <p className="text-sm text-muted-foreground">{today}</p>
@@ -217,9 +237,9 @@ export default function DailyTasks() {
         <div className="rounded-2xl bg-card/60 border border-white/5 p-4">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-semibold text-foreground">
-              {allDone ? "All done! 🎉" : `${completedCount} of ${tasks.length} completed`}
+              {allDone ? t.dailyTasksPage.allDone : t.dailyTasksPage.completedOf.replace("{completed}", String(completedCount)).replace("{total}", String(tasks.length))}
             </span>
-            <span className="text-xs text-muted-foreground">{claimedCount} claimed</span>
+            <span className="text-xs text-muted-foreground">{t.dailyTasksPage.claimedCount.replace("{count}", String(claimedCount))}</span>
           </div>
           <Progress
             value={Math.round((completedCount / tasks.length) * 100)}
@@ -242,9 +262,9 @@ export default function DailyTasks() {
             <Flame className="h-8 w-8 text-muted-foreground" />
           </div>
           <div>
-            <p className="font-bold text-foreground">No tasks today</p>
+            <p className="font-bold text-foreground">{t.dailyTasksPage.noTasksTitle}</p>
             <p className="text-sm text-muted-foreground mt-1">
-              The admin hasn't set any daily tasks yet. Check back soon!
+              {t.dailyTasksPage.noTasksDesc}
             </p>
           </div>
         </div>
@@ -254,19 +274,10 @@ export default function DailyTasks() {
             <TaskCard
               key={task.id}
               task={task}
-              onClaim={(id) => {
-                setClaimingId(id);
-                claim.mutate(id);
-              }}
+              claiming={claimingId === task.id}
+              onClaim={(id) => claim.mutate(id)}
             />
           ))}
-        </div>
-      )}
-
-      {/* Tip */}
-      {!isAuthenticated && tasks.length > 0 && (
-        <div className="rounded-xl bg-secondary/10 border border-secondary/20 p-4 text-sm text-center text-muted-foreground">
-          <Link href="/login" className="text-secondary font-semibold hover:underline">Sign in</Link> to track your progress and claim rewards
         </div>
       )}
     </div>

@@ -31,10 +31,13 @@ export function useSupabaseAuth(): AuthState {
   }, []);
 
   const login = useCallback(async () => {
+    // Include the app's base path — under a sub-path deploy (BASE_PATH) the bare
+    // origin lands outside the app.
+    const base = import.meta.env.BASE_URL.replace(/\/$/, "");
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: window.location.origin,
+        redirectTo: `${window.location.origin}${base}/`,
       },
     });
 

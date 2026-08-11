@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { Heart, Gem, Trophy, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n";
 
 const AD_DURATION = 30;
 const SKIP_AFTER = 5;
@@ -28,6 +29,7 @@ function triggerRewardAd() {
 }
 
 export function WatchAdModal({ onComplete, onClose, bonus, coinsMode, xpMode }: WatchAdModalProps) {
+  const { t } = useI18n();
   const [elapsed, setElapsed] = useState(0);
   const [phase, setPhase] = useState<"playing" | "earned">("playing");
   const [claiming, setClaiming] = useState(false);
@@ -80,7 +82,7 @@ export function WatchAdModal({ onComplete, onClose, bonus, coinsMode, xpMode }: 
           <>
             {/* Ad chrome top */}
             <div className="flex items-center justify-between px-4 py-2.5 bg-[#0a0a0a] border-b border-white/[0.08]">
-              <span className="text-[10px] text-white/35 uppercase tracking-widest font-semibold">Advertisement</span>
+              <span className="text-[10px] text-white/35 uppercase tracking-widest font-semibold">{t.watchAd.advertisement}</span>
               <button
                 onClick={canSkip ? handleSkip : undefined}
                 className={cn(
@@ -90,7 +92,7 @@ export function WatchAdModal({ onComplete, onClose, bonus, coinsMode, xpMode }: 
                     : "bg-white/5 text-white/25 cursor-default"
                 )}
               >
-                {canSkip ? "Skip ›" : `Skip in ${SKIP_AFTER - elapsed}s`}
+                {canSkip ? t.watchAd.skip : t.watchAd.skipIn.replace("{sec}", String(SKIP_AFTER - elapsed))}
               </button>
             </div>
 
@@ -124,10 +126,10 @@ export function WatchAdModal({ onComplete, onClose, bonus, coinsMode, xpMode }: 
               {/* Ad message */}
               <div className="flex flex-col gap-2">
                 <h2 className="text-white font-black text-2xl leading-tight">
-                  No Hearts.<br />No Waiting.
+                  {t.watchAd.heartsHeadline1}<br />{t.watchAd.heartsHeadline2}
                 </h2>
                 <p className="text-white/50 text-sm leading-relaxed">
-                  Play unlimited levels, go ad-free, and challenge friends in Arena mode.
+                  {t.watchAd.adBody}
                 </p>
 
                 {/* Hearts visual */}
@@ -135,7 +137,7 @@ export function WatchAdModal({ onComplete, onClose, bonus, coinsMode, xpMode }: 
                   {Array.from({ length: 6 }).map((_, i) => (
                     <Heart key={i} className="h-4 w-4 text-red-500 fill-red-500 drop-shadow-[0_0_6px_rgba(239,68,68,0.5)]" />
                   ))}
-                  <span className="text-white/60 text-xs ml-1 font-semibold">∞ Unlimited</span>
+                  <span className="text-white/60 text-xs ml-1 font-semibold">{t.watchAd.unlimited}</span>
                 </div>
               </div>
 
@@ -148,7 +150,7 @@ export function WatchAdModal({ onComplete, onClose, bonus, coinsMode, xpMode }: 
                   className="px-4 py-2 rounded-xl text-sm font-bold text-white cursor-pointer hover:scale-105 transition-transform"
                   style={{ background: "linear-gradient(135deg, #6366f1, #06b6d4)" }}
                 >
-                  Get Premium →
+                  {t.watchAd.getPremium}
                 </a>
                 <span className="text-white/25 text-xs font-mono tabular-nums">{timeLeft}s</span>
               </div>
@@ -167,8 +169,8 @@ export function WatchAdModal({ onComplete, onClose, bonus, coinsMode, xpMode }: 
                   <Zap className="h-12 w-12 text-indigo-400 drop-shadow-[0_0_14px_rgba(99,102,241,0.7)] animate-bounce" style={{ animationDuration: "0.8s" }} />
                 </div>
                 <div>
-                  <p className="text-white font-black text-2xl">+{xpMode} XP!</p>
-                  <p className="text-white/45 text-sm mt-1">Battle Pass XP added</p>
+                  <p className="text-white font-black text-2xl">{t.watchAd.xpEarned.replace("{xp}", String(xpMode))}</p>
+                  <p className="text-white/45 text-sm mt-1">{t.watchAd.xpEarnedDesc}</p>
                 </div>
               </>
             ) : coinsMode ? (
@@ -178,8 +180,8 @@ export function WatchAdModal({ onComplete, onClose, bonus, coinsMode, xpMode }: 
                   <Gem className="h-12 w-12 text-amber-400 drop-shadow-[0_0_14px_rgba(251,191,36,0.7)] animate-bounce" style={{ animationDuration: "0.8s" }} />
                 </div>
                 <div>
-                  <p className="text-white font-black text-2xl">+{coinsMode} Coins!</p>
-                  <p className="text-white/45 text-sm mt-1">Added to your balance</p>
+                  <p className="text-white font-black text-2xl">{t.watchAd.coinsEarned.replace("{coins}", String(coinsMode))}</p>
+                  <p className="text-white/45 text-sm mt-1">{t.watchAd.coinsEarnedDesc}</p>
                 </div>
               </>
             ) : (
@@ -195,8 +197,8 @@ export function WatchAdModal({ onComplete, onClose, bonus, coinsMode, xpMode }: 
                   ))}
                 </div>
                 <div>
-                  <p className="text-white font-black text-2xl">+{HEARTS_EARNED} Heart Restored!</p>
-                  <p className="text-white/45 text-sm mt-1">Thanks for watching</p>
+                  <p className="text-white font-black text-2xl">{t.watchAd.heartsEarned.replace("{hearts}", String(HEARTS_EARNED))}</p>
+                  <p className="text-white/45 text-sm mt-1">{t.watchAd.heartsEarnedDesc}</p>
                 </div>
                 {/* Bonus rewards */}
                 {hasBonus && (
@@ -204,18 +206,18 @@ export function WatchAdModal({ onComplete, onClose, bonus, coinsMode, xpMode }: 
                     className="w-full rounded-xl p-3 flex flex-col gap-2"
                     style={{ background: "rgba(99,102,241,0.15)", border: "1px solid rgba(99,102,241,0.3)" }}
                   >
-                    <p className="text-xs text-indigo-300 font-bold uppercase tracking-widest">2× Bonus Rewards</p>
+                    <p className="text-xs text-indigo-300 font-bold uppercase tracking-widest">{t.watchAd.bonusRewards}</p>
                     <div className="flex justify-center gap-6">
                       {bonus!.coins > 0 && (
                         <div className="flex items-center gap-1.5">
                           <Gem className="h-4 w-4 text-amber-400" />
-                          <span className="text-amber-300 font-bold text-sm">+{bonus!.coins} coins</span>
+                          <span className="text-amber-300 font-bold text-sm">{t.watchAd.bonusCoins.replace("{coins}", String(bonus!.coins))}</span>
                         </div>
                       )}
                       {bonus!.xp > 0 && (
                         <div className="flex items-center gap-1.5">
                           <Trophy className="h-4 w-4 text-indigo-400" />
-                          <span className="text-indigo-300 font-bold text-sm">+{bonus!.xp} XP</span>
+                          <span className="text-indigo-300 font-bold text-sm">{t.watchAd.bonusXp.replace("{xp}", String(bonus!.xp))}</span>
                         </div>
                       )}
                     </div>
@@ -230,14 +232,14 @@ export function WatchAdModal({ onComplete, onClose, bonus, coinsMode, xpMode }: 
               disabled={claiming}
               onClick={handleClaim}
             >
-              {claiming ? "Claiming…" : "Claim Rewards"}
+              {claiming ? t.watchAd.claiming : t.watchAd.claimRewards}
             </Button>
 
             <button
               onClick={onClose}
               className="text-xs text-white/25 hover:text-white/45 transition-colors"
             >
-              Close without claiming
+              {t.watchAd.closeWithoutClaiming}
             </button>
           </div>
         )}

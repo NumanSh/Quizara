@@ -1,6 +1,19 @@
-import { getRankDef, getXpProgress } from "@/lib/xpRank";
+import { getRankDef, getXpProgress, type RankTitle } from "@/lib/xpRank";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { useI18n } from "@/lib/i18n";
+import type { Translations } from "@/locales/en";
+
+export function rankTitleLabel(t: Translations, title: RankTitle): string {
+  const map: Record<RankTitle, string> = {
+    Rookie: t.ranks.rookie,
+    Scholar: t.ranks.scholar,
+    Expert: t.ranks.expert,
+    Master: t.ranks.master,
+    Legend: t.ranks.legend,
+  };
+  return map[title];
+}
 
 export interface XpRankBadgeProps {
   totalXp: number;
@@ -11,6 +24,7 @@ export interface XpRankBadgeProps {
 }
 
 export function RankBadge({ totalXp, size = "sm", showLabel = true, showProgress = false, className }: XpRankBadgeProps) {
+  const { t } = useI18n();
   const rank = getRankDef(totalXp);
   const progress = getXpProgress(totalXp);
 
@@ -33,7 +47,7 @@ export function RankBadge({ totalXp, size = "sm", showLabel = true, showProgress
       )}
     >
       <span>{rank.emoji}</span>
-      {showLabel && <span>{rank.title}</span>}
+      {showLabel && <span>{rankTitleLabel(t, rank.title)}</span>}
     </span>
   );
 
@@ -63,7 +77,7 @@ export function RankBadge({ totalXp, size = "sm", showLabel = true, showProgress
                   />
                 </div>
                 <span className="text-[10px] text-muted-foreground whitespace-nowrap">
-                  {progress.xpNeededForNext} XP to {progress.next.emoji} {progress.next.title}
+                  {progress.xpNeededForNext} {t.ranks.xpTo} {progress.next.emoji} {rankTitleLabel(t, progress.next.title)}
                 </span>
               </div>
             )}
@@ -71,14 +85,14 @@ export function RankBadge({ totalXp, size = "sm", showLabel = true, showProgress
         </TooltipTrigger>
         <TooltipContent side="bottom" className="text-xs">
           <div className="space-y-1">
-            <p className="font-bold">{rank.emoji} {rank.title}</p>
-            <p className="text-muted-foreground">Total XP: {totalXp.toLocaleString()}</p>
+            <p className="font-bold">{rank.emoji} {rankTitleLabel(t, rank.title)}</p>
+            <p className="text-muted-foreground">{t.ranks.totalXp} {totalXp.toLocaleString()}</p>
             {progress.next ? (
               <p className="text-muted-foreground">
-                {progress.xpNeededForNext} XP until {progress.next.emoji} {progress.next.title}
+                {progress.xpNeededForNext} {t.ranks.xpUntil} {progress.next.emoji} {rankTitleLabel(t, progress.next.title)}
               </p>
             ) : (
-              <p className="text-yellow-400 font-semibold">Maximum rank achieved! 👑</p>
+              <p className="text-yellow-400 font-semibold">{t.ranks.maxRank}</p>
             )}
           </div>
         </TooltipContent>

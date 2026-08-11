@@ -1,283 +1,227 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
+import { motion, useReducedMotion } from "framer-motion";
+import { ArrowUpRight, ChevronRight, Heart, Link2, Search, X } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { getListCategoriesQueryKey, useListCategories } from "@workspace/api-client-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useListCategories, getListCategoriesQueryKey } from "@workspace/api-client-react";
-import { Search, X, ChevronRight, Map, Link2, Copy, CheckCheck } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
+import { useSupabaseAuth } from "@/hooks/useSupabaseAuth";
+import { PLAYER_LIBRARY_QUERY_KEY, type PlayerLibrary, updateCategoryFavorite, usePlayerLibrary } from "@/hooks/usePlayerLibrary";
 import { authFetch } from "@/lib/api";
+import { useI18n } from "@/lib/i18n";
 
 const CATEGORY_IMAGES: Record<string, string> = {
-  "anime": "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=600&q=80",
-  "anime & manga": "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=600&q=80",
-  "geography": "https://images.unsplash.com/photo-1521295121783-8a321d551ad2?w=600&q=80",
-  "cinema": "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=600&q=80",
-  "cinema & tv": "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=600&q=80",
-  "science": "https://images.unsplash.com/photo-1532187863486-abf9dbad1b69?w=600&q=80",
-  "history": "https://images.unsplash.com/photo-1564419320461-6870880221ad?w=600&q=80",
-  "sports": "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?w=600&q=80",
-  "pop culture": "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=600&q=80",
-  "general knowledge": "https://images.unsplash.com/photo-1481627834876-b7833e8f5570?w=600&q=80",
-  "technology": "https://images.unsplash.com/photo-1518770660439-4636190af475?w=600&q=80",
-  "tech": "https://images.unsplash.com/photo-1518770660439-4636190af475?w=600&q=80",
-  "music": "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=600&q=80",
-  "art": "https://images.unsplash.com/photo-1541961017774-22349e4a1262?w=600&q=80",
-  "food": "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=600&q=80",
-  "nature": "https://images.unsplash.com/photo-1501854140801-50d01698950b?w=600&q=80",
-  "politics": "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?w=600&q=80",
-  "literature": "https://images.unsplash.com/photo-1507842217343-583bb7270b66?w=600&q=80",
+  "anime": "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=1000&q=85",
+  "anime & manga": "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=1000&q=85",
+  "geography": "https://images.unsplash.com/photo-1521295121783-8a321d551ad2?w=1000&q=85",
+  "cinema": "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=1000&q=85",
+  "cinema & tv": "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=1000&q=85",
+  "science": "https://images.unsplash.com/photo-1532187863486-abf9dbad1b69?w=1000&q=85",
+  "history": "https://images.unsplash.com/photo-1564419320461-6870880221ad?w=1000&q=85",
+  "sports": "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?w=1000&q=85",
+  "pop culture": "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=1000&q=85",
+  "general knowledge": "https://images.unsplash.com/photo-1481627834876-b7833e8f5570?w=1000&q=85",
+  "technology": "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1000&q=85",
+  "tech": "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1000&q=85",
+  "music": "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=1000&q=85",
+  "art": "https://images.unsplash.com/photo-1541961017774-22349e4a1262?w=1000&q=85",
+  "food": "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=1000&q=85",
+  "nature": "https://images.unsplash.com/photo-1501854140801-50d01698950b?w=1000&q=85",
+  "politics": "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?w=1000&q=85",
+  "literature": "https://images.unsplash.com/photo-1507842217343-583bb7270b66?w=1000&q=85",
 };
 
-const GRADIENT_FALLBACKS = [
-  "from-indigo-900 to-indigo-950",
-  "from-cyan-900 to-cyan-950",
-  "from-rose-900 to-rose-950",
-  "from-amber-900 to-amber-950",
-  "from-emerald-900 to-emerald-950",
-  "from-violet-900 to-violet-950",
-  "from-sky-900 to-sky-950",
-  "from-pink-900 to-pink-950",
-];
-
-const ACCENT_COLORS = [
-  "hover:border-indigo-500/60",
-  "hover:border-cyan-500/60",
-  "hover:border-rose-500/60",
-  "hover:border-amber-500/60",
-  "hover:border-emerald-500/60",
-  "hover:border-violet-500/60",
-  "hover:border-sky-500/60",
-  "hover:border-pink-500/60",
-];
-
-const EXPLORE_TEXT_COLORS = [
-  "text-indigo-400", "text-cyan-400", "text-rose-400", "text-amber-400",
-  "text-emerald-400", "text-violet-400", "text-sky-400", "text-pink-400",
-];
-
-function getCategoryImage(name: string): string | null {
-  const lower = name.toLowerCase();
-  for (const [key, url] of Object.entries(CATEGORY_IMAGES)) {
-    if (lower.includes(key) || key.includes(lower)) return url;
-  }
-  return null;
+function getCategoryImage(name: string) {
+  const normalized = name.toLowerCase();
+  const match = Object.entries(CATEGORY_IMAGES).find(([key]) => normalized.includes(key) || key.includes(normalized));
+  return match?.[1] ?? null;
 }
 
 interface WorldCardProps {
   category: any;
   index: number;
-  onClick: () => void;
-  onChallenge: (e: React.MouseEvent) => void;
+  onOpen: () => void;
+  onChallenge: (event: React.MouseEvent) => void;
+  onFavorite: (event: React.MouseEvent) => void;
   challenging: boolean;
+  favoritePending: boolean;
+  isFavorite: boolean;
+  allowFavorite: boolean;
+  reducedMotion: boolean | null;
+  favoriteActionLabel: string;
 }
 
-function WorldCard({ category, index, onClick, onChallenge, challenging }: WorldCardProps) {
+function WorldCard({ category, index, onOpen, onChallenge, onFavorite, challenging, favoritePending, isFavorite, allowFavorite, reducedMotion, favoriteActionLabel }: WorldCardProps) {
+  const { t } = useI18n();
   const imageUrl = getCategoryImage(category.name);
-  const gradient = GRADIENT_FALLBACKS[index % GRADIENT_FALLBACKS.length];
-  const accentClass = ACCENT_COLORS[index % ACCENT_COLORS.length];
-  const exploreColor = EXPLORE_TEXT_COLORS[index % EXPLORE_TEXT_COLORS.length];
+  const questionCount = Number(category.questionCount ?? 0);
+  const levelCount = Math.floor(questionCount / 3);
 
   return (
-    <div
-      onClick={onClick}
-      className={cn(
-        "group relative overflow-hidden rounded-2xl border border-white/8 bg-card cursor-pointer",
-        "transition-all duration-300 hover:shadow-[0_8px_32px_rgba(0,0,0,0.4)] hover:-translate-y-0.5",
-        accentClass
-      )}
+    <motion.article
+      initial={reducedMotion ? false : { opacity: 0, y: 16 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, amount: 0.2 }}
+      transition={{ duration: 0.5, delay: (index % 6) * 0.035, ease: [0.16, 1, 0.3, 1] }}
+      className="group relative min-h-[156px] overflow-hidden border border-white/10 bg-card sm:min-h-[172px]"
     >
-      {/* Top half — photo */}
-      <div className="relative h-40 overflow-hidden">
-        {imageUrl ? (
-          <img
-            src={imageUrl}
-            alt={category.name}
-            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-            loading="lazy"
-          />
-        ) : (
-          <div className={cn("w-full h-full bg-gradient-to-br", gradient, "flex items-center justify-center")}>
-            <span className="text-5xl opacity-40 select-none">{category.icon || "📚"}</span>
-          </div>
-        )}
-        <div className="absolute inset-0 bg-gradient-to-t from-card via-card/20 to-transparent" />
+      {imageUrl ? (
+        <img src={imageUrl} alt="" className="absolute inset-0 h-full w-full object-cover saturate-[0.55] transition duration-700 ease-[var(--ease-out-expo)] group-hover:scale-[1.045] group-hover:saturate-90" loading="lazy" />
+      ) : (
+        <div className="editorial-grid absolute inset-0 grid place-items-center text-6xl font-extrabold text-white/8">{category.icon || String(index + 1).padStart(2, "0")}</div>
+      )}
+      <div className="absolute inset-0 bg-[linear-gradient(135deg,hsl(var(--background)/0.35),hsl(var(--background)/0.92)_78%)]" />
+      <div className="absolute inset-0 bg-gradient-to-t from-background via-background/15 to-transparent" />
 
-        {index === 0 && (
-          <div className="absolute top-3 right-3 flex items-center gap-1.5 bg-background/80 backdrop-blur-sm border border-indigo-500/40 text-indigo-400 text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wide">
-            <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
-            Trending
-          </div>
-        )}
+      <button type="button" onClick={onOpen} aria-label={t.categoriesLibrary.openLabel.replace("{name}", category.name)} className="focus-ring absolute inset-0 z-10 cursor-pointer">
+        <span className="sr-only">{t.categoriesLibrary.openSr.replace("{name}", category.name)}</span>
+      </button>
 
-        {/* World badge */}
-        <div className="absolute top-3 left-3 flex items-center gap-1 bg-background/70 backdrop-blur-sm border border-white/10 text-[10px] font-semibold px-2 py-0.5 rounded-full text-muted-foreground">
-          <Map className="h-2.5 w-2.5" />
-          World
+      <div className="pointer-events-none relative z-0 flex min-h-[156px] flex-col justify-between p-3.5 sm:min-h-[172px] sm:p-5">
+        <div className="flex items-start justify-between gap-3">
+          <span className="bg-primary px-2 py-1 text-[8px] font-bold uppercase tracking-[0.18em] text-primary-foreground">{t.categoriesLibrary.world.replace("{n}", String(index + 1).padStart(2, "0"))}</span>
+          {!allowFavorite && <span className="grid h-9 w-9 place-items-center border border-white/20 bg-background/45 text-foreground backdrop-blur-sm transition-all duration-300 group-hover:rotate-45 group-hover:border-primary group-hover:bg-primary group-hover:text-primary-foreground"><ArrowUpRight className="h-3.5 w-3.5 transition-transform duration-300 group-hover:-rotate-45" /></span>}
+        </div>
+        <div className="pr-10 rtl:pl-10 rtl:pr-0">
+          <h2 className="line-clamp-2 text-lg font-extrabold leading-[1.02] tracking-[-0.045em] transition-colors group-hover:text-primary sm:text-2xl">{category.name}</h2>
+          <p className="mt-2 text-[8px] font-bold uppercase tracking-[0.14em] text-white/55 sm:text-[9px]">{questionCount > 0 ? t.categoriesLibrary.levelsQuestions.replace("{levels}", String(levelCount)).replace("{questions}", String(questionCount)) : t.categoriesLibrary.openField}</p>
         </div>
       </div>
 
-      {/* Bottom */}
-      <div className="px-5 py-4 flex flex-col gap-1">
-        <h3 className="font-bold text-lg text-foreground leading-tight group-hover:text-white transition-colors">
-          {category.name}
-        </h3>
-        <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/8">
-          <span className="text-xs text-muted-foreground font-medium">
-            {category.questionCount > 0
-              ? `${Math.floor(category.questionCount / 3)} levels`
-              : "Explore levels"}
-          </span>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={onChallenge}
-              disabled={challenging}
-              title="Challenge a Friend"
-              className="flex items-center gap-1 text-xs font-semibold text-indigo-400 hover:text-indigo-300 transition-colors disabled:opacity-50 px-1.5 py-0.5 rounded hover:bg-indigo-500/10"
-            >
-              {challenging
-                ? <span className="w-3 h-3 border border-indigo-400/40 border-t-indigo-400 rounded-full animate-spin" />
-                : <Link2 className="h-3 w-3" />}
-              Challenge
-            </button>
-            <span className={cn(
-              "text-xs font-semibold flex items-center gap-0.5 opacity-0 -translate-x-2 transition-all duration-200 group-hover:opacity-100 group-hover:translate-x-0",
-              exploreColor
-            )}>
-              Enter <ChevronRight className="h-3.5 w-3.5" />
-            </span>
-          </div>
-        </div>
-      </div>
-    </div>
+      {allowFavorite && (
+        <button type="button" onClick={onFavorite} disabled={favoritePending} aria-label={`${favoriteActionLabel} ${category.name}`} aria-pressed={isFavorite} className={`focus-ring absolute right-2 top-2 z-20 grid h-11 w-11 place-items-center border backdrop-blur-sm transition-all sm:right-3 sm:top-3 rtl:left-2 rtl:right-auto sm:rtl:left-3 ${isFavorite ? "border-primary bg-primary text-primary-foreground" : "border-white/20 bg-background/55 text-white/65 hover:border-primary hover:text-primary"}`}>
+          {favoritePending ? <span className="h-3.5 w-3.5 animate-spin rounded-full border border-current border-t-transparent" /> : <Heart className={`h-4 w-4 ${isFavorite ? "fill-current" : ""}`} />}
+        </button>
+      )}
+
+      <button type="button" onClick={onChallenge} disabled={challenging} aria-label={t.categoriesLibrary.challengeAria.replace("{name}", category.name)} className="focus-ring absolute bottom-2 right-2 z-20 grid h-11 w-11 place-items-center text-white/60 transition-colors hover:text-secondary disabled:opacity-50 sm:bottom-3 sm:right-3 rtl:left-2 rtl:right-auto sm:rtl:left-3">
+        {challenging ? <span className="h-3.5 w-3.5 animate-spin rounded-full border border-current border-t-transparent" /> : <Link2 className="h-3.5 w-3.5" />}
+      </button>
+    </motion.article>
   );
 }
 
 export default function Categories() {
-  const [location, setLocation] = useLocation();
+  const [, setLocation] = useLocation();
+  const queryClient = useQueryClient();
+  const reduceMotion = useReducedMotion();
   const [searchQuery, setSearchQuery] = useState("");
+  const [view, setView] = useState<"all" | "favorites">("all");
   const [challengingId, setChallengingId] = useState<string | null>(null);
+  const [favoritePendingId, setFavoritePendingId] = useState<string | null>(null);
   const { toast } = useToast();
-
-  // Get parentId from query string
-  const searchParams = new URLSearchParams(window.location.search);
-  const parentId = searchParams.get("parent") || undefined;
-
+  const { t } = useI18n();
+  const { isAuthenticated } = useSupabaseAuth();
+  const parentId = new URLSearchParams(window.location.search).get("parent") || undefined;
+  const { data: playerLibrary, isLoading: libraryLoading } = usePlayerLibrary(isAuthenticated && !parentId);
   const { data: allCategories, isLoading } = useListCategories(
     { parentId },
-    { 
-      query: { 
-        queryKey: getListCategoriesQueryKey({ parentId }),
-        // Re-fetch when parentId changes
-        enabled: true 
-      } 
-    }
+    { query: { queryKey: getListCategoriesQueryKey({ parentId }), enabled: true } }
   );
+  const favoriteIds = useMemo(() => new Set(playerLibrary?.favoriteCategoryIds ?? []), [playerLibrary?.favoriteCategoryIds]);
 
-  const handleChallenge = async (e: React.MouseEvent, categoryId: string, categoryName: string) => {
-    e.stopPropagation();
+  const handleFavorite = async (event: React.MouseEvent, categoryId: string, categoryName: string) => {
+    event.stopPropagation();
+    if (!isAuthenticated) {
+      toast({ title: t.categoriesLibrary.signInTitle, description: t.categoriesLibrary.signInDescription });
+      return;
+    }
+
+    const wasFavorite = favoriteIds.has(categoryId);
+    const previousLibrary = queryClient.getQueryData<PlayerLibrary>(PLAYER_LIBRARY_QUERY_KEY);
+    setFavoritePendingId(categoryId);
+    queryClient.setQueryData<PlayerLibrary>(PLAYER_LIBRARY_QUERY_KEY, current => ({
+      favoriteCategoryIds: wasFavorite
+        ? (current?.favoriteCategoryIds ?? []).filter(id => id !== categoryId)
+        : Array.from(new Set([categoryId, ...(current?.favoriteCategoryIds ?? [])])),
+      continuePlaying: current?.continuePlaying ?? null,
+    }));
+
+    try {
+      await updateCategoryFavorite(categoryId, !wasFavorite);
+      toast({ title: wasFavorite ? t.categoriesLibrary.removedFromFavorites : t.categoriesLibrary.addedToFavorites, description: categoryName });
+    } catch {
+      queryClient.setQueryData(PLAYER_LIBRARY_QUERY_KEY, previousLibrary);
+      toast({ title: t.categoriesLibrary.couldNotUpdateFavorites, description: t.categoriesLibrary.tryAgain, variant: "destructive" });
+    } finally {
+      setFavoritePendingId(null);
+      queryClient.invalidateQueries({ queryKey: PLAYER_LIBRARY_QUERY_KEY });
+    }
+  };
+
+  const handleChallenge = async (event: React.MouseEvent, categoryId: string, categoryName: string) => {
+    event.stopPropagation();
     setChallengingId(categoryId);
     try {
-      const res = await authFetch("/api/challenges", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ categoryId, questionCount: 10 }),
-      });
-      if (!res.ok) throw new Error("Failed");
-      const data = await res.json();
+      const response = await authFetch("/api/challenges", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ categoryId, questionCount: 10 }) });
+      if (!response.ok) throw new Error("Failed");
+      const data = await response.json();
       const url = `${window.location.origin}${import.meta.env.BASE_URL}challenge/${data.code}`.replace(/([^:])\/\//g, "$1/");
       await navigator.clipboard.writeText(url).catch(() => {});
-      toast({
-        title: `${categoryName} challenge created!`,
-        description: `Link copied — share it with your friends. Code: ${data.code}`,
-      });
+      toast({ title: t.categoriesLibrary.challengeCreated.replace("{name}", categoryName), description: t.categoriesLibrary.linkCopiedShare.replace("{code}", data.code) });
       setLocation(`/challenge/${data.code}`);
     } catch {
-      toast({ title: "Could not create challenge", variant: "destructive" });
+      toast({ title: t.categoriesLibrary.couldNotCreateChallenge, variant: "destructive" });
     } finally {
       setChallengingId(null);
     }
   };
 
-  const filtered = (allCategories || []).filter(c =>
-    searchQuery === "" ||
-    c.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filtered = useMemo(() => {
+    const normalizedQuery = searchQuery.trim().toLocaleLowerCase();
+    return [...(allCategories || [])]
+      .filter(category => !normalizedQuery || category.name.toLocaleLowerCase().includes(normalizedQuery))
+      .filter(category => view === "all" || favoriteIds.has(category.id))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+  }, [allCategories, favoriteIds, searchQuery, view]);
 
   return (
-    <div className="flex-1 w-full">
-      <div className="fixed top-1/4 left-1/3 w-96 h-96 bg-secondary/5 rounded-full blur-[120px] pointer-events-none" />
-      <div className="fixed bottom-1/4 right-1/4 w-96 h-96 bg-primary/4 rounded-full blur-[120px] pointer-events-none" />
-
-      <div className="max-w-7xl mx-auto px-4 md:px-6 py-8 relative">
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-8">
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              {parentId && (
-                <button 
-                  onClick={() => setLocation("/categories")}
-                  className="text-xs font-medium text-primary hover:underline flex items-center gap-1"
-                >
-                  <ChevronRight className="h-3 w-3 rotate-180" />
-                  Back to Worlds
-                </button>
-              )}
+    <div className="flex-1">
+      <header className="editorial-grid border-b border-white/8">
+        <div className="mx-auto max-w-[1440px] px-4 py-7 sm:px-8 sm:py-9 lg:px-12 xl:px-16">
+          <motion.div initial={reduceMotion ? false : { opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.75, ease: [0.16, 1, 0.3, 1] }}>
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3 text-[9px] font-bold uppercase tracking-[0.22em] text-muted-foreground sm:text-[10px]"><span className="text-primary">01</span><span className="h-px w-8 bg-white/15" />{t.categoriesLibrary.knowledgeIndex}</div>
+              {parentId && <button onClick={() => setLocation("/categories")} className="focus-ring flex min-h-11 items-center gap-2 text-[9px] font-bold uppercase tracking-[0.16em] text-primary"><ChevronRight className="h-3 w-3 rotate-180 rtl:rotate-0" />{t.categoriesLibrary.backToWorlds}</button>}
             </div>
-            <h1 className="text-3xl font-bold text-foreground tracking-tight">
-              {parentId ? "Explore Subcategories" : "Choose Your World"}
-            </h1>
-            <p className="text-muted-foreground text-sm mt-1">
-              {parentId 
-                ? "Select a specific topic to begin your quest" 
-                : "Each world is a journey — conquer levels to master the topic"}
-            </p>
-          </div>
-
-          <div className="relative w-full md:w-72">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              placeholder="Search worlds..."
-              className="w-full h-10 bg-card border border-white/10 rounded-xl pl-9 pr-9 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20 transition-all"
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery("")}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
+            <div className="mt-4 grid gap-5 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-end">
+              <div>
+                <h1 className="max-w-4xl text-[clamp(2.35rem,5vw,4.8rem)] font-extrabold leading-[0.9] tracking-[-0.07em]">{parentId ? t.categoriesLibrary.exploreSubcategories : t.categoriesLibrary.chooseYourWorld}</h1>
+                <p className="mt-3 max-w-2xl text-xs leading-6 text-muted-foreground sm:text-sm">{t.categoriesLibrary.indexDesc}</p>
+              </div>
+              <div className="relative w-full"><Search className="absolute left-0 top-1/2 h-4 w-4 -translate-y-1/2 text-primary rtl:left-auto rtl:right-0" /><input value={searchQuery} onChange={event => setSearchQuery(event.target.value)} placeholder={t.categoriesLibrary.searchPlaceholder} className="focus-ring h-11 w-full border-b border-white/18 bg-transparent px-8 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-primary rtl:text-right" />{searchQuery && <button onClick={() => setSearchQuery("")} aria-label={t.categoriesLibrary.clearSearch} className="focus-ring absolute right-0 top-1/2 grid h-11 w-11 -translate-y-1/2 place-items-center text-muted-foreground rtl:left-0 rtl:right-auto"><X className="h-4 w-4" /></button>}</div>
+            </div>
+          </motion.div>
         </div>
+      </header>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-          {isLoading
-            ? Array.from({ length: 8 }).map((_, i) => (
-                <Skeleton key={i} className="h-[230px] rounded-2xl" />
-              ))
-            : filtered.length === 0
-              ? (
-                <div className="col-span-full py-24 text-center">
-                  <p className="text-2xl mb-2">🔍</p>
-                  <p className="font-semibold text-foreground">No worlds found</p>
-                  <p className="text-sm text-muted-foreground mt-1">Try a different search term</p>
-                </div>
-              )
-              : filtered.map((category, i) => (
-                <WorldCard
-                  key={category.id}
-                  category={category}
-                  index={i}
-                  onClick={() => setLocation(`/worlds/${category.id}`)}
-                  onChallenge={e => handleChallenge(e, category.id, category.name)}
-                  challenging={challengingId === category.id}
-                />
-              ))}
+      <main className="mx-auto max-w-[1440px] px-4 py-5 sm:px-8 sm:py-6 lg:px-12 xl:px-16">
+        <div className="mb-4 flex min-h-11 items-center justify-between gap-3 border-b border-white/10 pb-3 text-[8px] font-bold uppercase tracking-[0.2em] text-muted-foreground sm:text-[9px]">
+          <span>{t.categoriesLibrary.fieldsAvailable.replace("{count}", String(filtered.length))}</span>
+          {!parentId && (
+            <div className="flex items-center border border-white/10 p-0.5" aria-label={t.categoriesLibrary.view}>
+              <button type="button" onClick={() => setView("all")} aria-pressed={view === "all"} className={`focus-ring min-h-9 px-3 transition-colors ${view === "all" ? "bg-primary text-primary-foreground" : "hover:text-foreground"}`}>{t.categoriesLibrary.all}</button>
+              <button type="button" onClick={() => setView("favorites")} aria-pressed={view === "favorites"} className={`focus-ring flex min-h-9 items-center gap-1.5 px-3 transition-colors ${view === "favorites" ? "bg-primary text-primary-foreground" : "hover:text-foreground"}`}><Heart className={`h-3 w-3 ${view === "favorites" ? "fill-current" : ""}`} />{t.categoriesLibrary.favorites} {isAuthenticated && !libraryLoading ? favoriteIds.size : ""}</button>
+            </div>
+          )}
+          <span className="hidden sm:inline">{t.categoriesLibrary.azSelectExplore}</span>
         </div>
-      </div>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 lg:gap-4 2xl:grid-cols-4">
+          {isLoading ? Array.from({ length: 12 }).map((_, index) => <Skeleton key={index} className="h-[156px] rounded-none sm:h-[172px]" />) : filtered.length === 0 ? (
+            <div className="col-span-full py-24 text-center">
+              {view === "favorites" ? <Heart className="mx-auto h-7 w-7 text-primary" /> : <Search className="mx-auto h-7 w-7 text-primary" />}
+              <p className="mt-6 text-3xl font-extrabold tracking-[-0.04em]">{view === "favorites" ? t.categoriesLibrary.noFavorites : t.categoriesLibrary.noWorldsFound}</p>
+              <p className="mx-auto mt-3 max-w-md text-sm leading-7 text-muted-foreground">{view === "favorites" ? isAuthenticated ? t.categoriesLibrary.favoriteHint : t.categoriesLibrary.guestHint : t.categoriesLibrary.tryDifferentSearch}</p>
+              {view === "favorites" && <button type="button" onClick={() => isAuthenticated ? setView("all") : setLocation("/login")} className="focus-ring mt-7 border-b border-primary pb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-primary">{isAuthenticated ? t.categoriesLibrary.browseAll : t.categoriesLibrary.signIn}</button>}
+            </div>
+          ) : filtered.map((category, index) => (
+            <div key={category.id}>
+              <WorldCard category={category} index={index} onOpen={() => setLocation(`/worlds/${category.id}`)} onChallenge={event => handleChallenge(event, category.id, category.name)} onFavorite={event => handleFavorite(event, category.id, category.name)} challenging={challengingId === category.id} favoritePending={favoritePendingId === category.id || (isAuthenticated && libraryLoading)} isFavorite={favoriteIds.has(category.id)} allowFavorite={!parentId} reducedMotion={reduceMotion} favoriteActionLabel={favoriteIds.has(category.id) ? t.categoriesLibrary.removeFavorite : t.categoriesLibrary.addFavorite} />
+            </div>
+          ))}
+        </div>
+      </main>
     </div>
   );
 }

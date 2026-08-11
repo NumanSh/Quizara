@@ -24,11 +24,12 @@ import {
   CheckCircle2, Search, BarChart3, ArrowUp, ArrowDown, Layers,
   ListOrdered, Shuffle, Music, Crosshair, GripVertical, Settings, Eye, EyeOff, KeyRound,
   UserCheck, UserX, Crown, UserRound, Medal, Gamepad2, Gem, Heart, ShoppingBag, ToggleRight,
-  ClipboardList, Zap, Target, Upload, Download, AlertTriangle, Loader2, Coins,
+  ClipboardList, Zap, Target, Upload, Download, AlertTriangle, Loader2, Coins, Film,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { authFetch } from "@/lib/api";
+import { isSafeMediaUrl, isVideoMediaUrl } from "@/lib/media";
 
 type QuestionType = "multiple_choice" | "true_false" | "image" | "fill_blank" | "ordering" | "matching" | "audio" | "hotspot";
 type AdminSection = "overview" | "categories" | "questions" | "users" | "settings" | "badges" | "marketplace" | "daily-tasks" | "economy";
@@ -104,6 +105,37 @@ const BLANK_Q = {
   difficulty: 1,
 };
 
+function WorldMediaPreview({ url }: { url: string }) {
+  const [failed, setFailed] = useState(false);
+  const value = url.trim();
+  const isVideo = isVideoMediaUrl(value);
+
+  useEffect(() => setFailed(false), [value]);
+
+  if (!value) return null;
+  if (!isSafeMediaUrl(value)) {
+    return <p className="flex items-center gap-2 text-xs font-medium text-destructive"><AlertTriangle className="h-3.5 w-3.5" />Enter a valid HTTP(S) or site-relative media URL.</p>;
+  }
+  if (failed) {
+    return <p className="flex items-center gap-2 border border-destructive/25 bg-destructive/5 px-3 py-3 text-xs text-destructive"><AlertTriangle className="h-3.5 w-3.5 shrink-0" />The media could not be loaded. Check that the URL is public and allows browser playback.</p>;
+  }
+
+  return (
+    <div className="relative mt-2 h-44 overflow-hidden border border-border bg-background">
+      {isVideo ? (
+        <video src={value} autoPlay loop muted playsInline controls preload="metadata" onError={() => setFailed(true)} className="h-full w-full object-cover" />
+      ) : (
+        <img src={value} alt="World background preview" onError={() => setFailed(true)} className="h-full w-full object-cover" />
+      )}
+      <span className="pointer-events-none absolute left-3 top-3 flex items-center gap-1.5 bg-background/90 px-2 py-1 text-[9px] font-bold uppercase tracking-[0.14em] text-primary backdrop-blur-sm rtl:left-auto rtl:right-3">
+        {isVideo ? <Film className="h-3 w-3" /> : <Image className="h-3 w-3" />}
+        {isVideo ? "Looping video" : "Image / animated image"}
+      </span>
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-background/55 via-transparent to-transparent" />
+    </div>
+  );
+}
+
 function StatCard({ icon: Icon, label, value, color }: { icon: any; label: string; value: number; color: string }) {
   return (
     <div className="rounded-xl border border-border bg-card p-5">
@@ -158,20 +190,28 @@ export default function Admin() {
     query: { queryKey: getAdminListCategoriesQueryKey(), enabled: isAdmin },
   });
 
-  const { data: questionsData, isLoading: qsLoading } = useAdminListQuestions(
-    { offset: 0, limit: 200 },
-    { query: { queryKey: getAdminListQuestionsQueryKey({ offset: 0, limit: 200 }), enabled: isAdmin } }
-  );
-
-  const questions = (questionsData as any)?.questions ?? [];
-  const rootCategories = (allCategories || []).filter((c: any) => !c.parentId);
-  const subCategories = (allCategories || []).filter((c: any) => c.parentId);
-
   const [section, setSection] = useState<AdminSection>("overview");
   const [expandedCats, setExpandedCats] = useState<Set<string>>(new Set());
   const [qTypeFilter, setQTypeFilter] = useState<QuestionType | "all">("all");
   const [qCatFilter, setQCatFilter] = useState<string>("all");
   const [qSearch, setQSearch] = useState("");
+  const [qOffset, setQOffset] = useState(0);
+  const QUESTIONS_PAGE_SIZE = 200;
+
+  const qQueryParams = {
+    offset: qOffset,
+    limit: QUESTIONS_PAGE_SIZE,
+    ...(qCatFilter !== "all" ? { categoryId: qCatFilter } : {}),
+  };
+  const { data: questionsData, isLoading: qsLoading } = useAdminListQuestions(
+    qQueryParams,
+    { query: { queryKey: getAdminListQuestionsQueryKey(qQueryParams), enabled: isAdmin } }
+  );
+
+  const questions = (questionsData as any)?.questions ?? [];
+  const questionsTotal = (questionsData as any)?.total ?? questions.length;
+  const rootCategories = (allCategories || []).filter((c: any) => !c.parentId);
+  const subCategories = (allCategories || []).filter((c: any) => c.parentId);
 
   const [catDialog, setCatDialog] = useState<{ mode: "create" | "edit"; item?: any; forParent?: string } | null>(null);
   const [catForm, setCatForm] = useState({ ...BLANK_CAT });
@@ -728,8 +768,8 @@ export default function Admin() {
   const createCat = useAdminCreateCategory({ mutation: { onSuccess: () => { refetchAll(); setCatDialog(null); toast({ title: "Category created" }); } } });
   const updateCat = useAdminUpdateCategory({ mutation: { onSuccess: () => { refetchAll(); setCatDialog(null); toast({ title: "Category updated" }); } } });
   const deleteCat = useAdminDeleteCategory({ mutation: { onSuccess: () => { refetchAll(); toast({ title: "Category deleted" }); } } });
-  const createQ = useAdminCreateQuestion({ mutation: { onSuccess: () => { refetchAll(); setQDialog(null); toast({ title: "Question created" }); } } });
-  const updateQ = useAdminUpdateQuestion({ mutation: { onSuccess: () => { refetchAll(); setQDialog(null); toast({ title: "Question updated" }); } } });
+  const createQ = useAdminCreateQuestion({ mutation: { onSuccess: () => { refetchAll(); setQDialog(null); toast({ title: "Question created" }); }, onError: (err: any) => { toast({ title: err?.status === 409 ? "Duplicate question" : "Error", description: err?.status === 409 ? "This question already exists in the selected category." : err?.message, variant: "destructive" }); } } });
+  const updateQ = useAdminUpdateQuestion({ mutation: { onSuccess: () => { refetchAll(); setQDialog(null); toast({ title: "Question updated" }); }, onError: (err: any) => { toast({ title: err?.status === 409 ? "Duplicate question" : "Error", description: err?.status === 409 ? "This question already exists in the selected category." : err?.message, variant: "destructive" }); } } });
   const deleteQ = useAdminDeleteQuestion({ mutation: { onSuccess: () => { refetchAll(); toast({ title: "Question deleted" }); } } });
 
   const openCatCreate = (forParent?: string) => {
@@ -741,9 +781,13 @@ export default function Admin() {
     setCatDialog({ mode: "edit", item });
   };
   const saveCat = () => {
-    const data: any = { name: catForm.name, nameAr: catForm.name, icon: catForm.icon, color: catForm.color };
-    if (catForm.parentId) data.parentId = catForm.parentId;
-    if (catForm.imageUrl.trim()) data.imageUrl = catForm.imageUrl.trim();
+    const backgroundMediaUrl = catForm.imageUrl.trim();
+    if (!isSafeMediaUrl(backgroundMediaUrl)) {
+      toast({ title: "Invalid background URL", description: "Use an HTTP(S) URL or a site-relative path.", variant: "destructive" });
+      return;
+    }
+    const data: any = { name: catForm.name, nameAr: catForm.name, icon: catForm.icon, color: catForm.color, parentId: catForm.parentId || null };
+    data.imageUrl = backgroundMediaUrl;
     if (catDialog?.mode === "create") createCat.mutate({ data });
     else updateCat.mutate({ categoryId: catDialog!.item.id, data });
   };
@@ -883,6 +927,10 @@ export default function Admin() {
     if (section === "daily-tasks" && isAdmin) fetchTaskItems();
     if (section === "economy" && isAdmin) fetchEconomy();
   }, [section, isAdmin]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    setQOffset(0);
+  }, [qCatFilter]);
 
   const moveOrderingItem = (idx: number, dir: -1 | 1) => {
     const next = [...orderingItems];
@@ -1142,7 +1190,9 @@ export default function Admin() {
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-bold">Questions</h2>
-                <p className="text-sm text-muted-foreground">{filteredQs.length} of {questions.length} questions</p>
+                <p className="text-sm text-muted-foreground">
+                  {filteredQs.length} shown (page {qOffset + 1}-{qOffset + questions.length} of {questionsTotal} in this category)
+                </p>
               </div>
               <div className="flex items-center gap-2">
                 <Button variant="outline" onClick={() => setImportDialogOpen(true)}>
@@ -1251,6 +1301,30 @@ export default function Admin() {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {questionsTotal > QUESTIONS_PAGE_SIZE && (
+              <div className="flex items-center justify-between pt-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={qOffset === 0}
+                  onClick={() => setQOffset(o => Math.max(0, o - QUESTIONS_PAGE_SIZE))}
+                >
+                  Previous
+                </Button>
+                <span className="text-xs text-muted-foreground">
+                  Rows {qOffset + 1}-{qOffset + questions.length} of {questionsTotal}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={qOffset + QUESTIONS_PAGE_SIZE >= questionsTotal}
+                  onClick={() => setQOffset(o => o + QUESTIONS_PAGE_SIZE)}
+                >
+                  Next
+                </Button>
               </div>
             )}
           </div>
@@ -1920,7 +1994,7 @@ export default function Admin() {
 
       {/* Category Dialog */}
       <Dialog open={!!catDialog} onOpenChange={(open) => !open && setCatDialog(null)}>
-        <DialogContent className="sm:max-w-md border-border bg-card">
+        <DialogContent className="sm:max-w-lg border-border bg-card max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {catDialog?.mode === "create"
@@ -1946,26 +2020,28 @@ export default function Admin() {
                 </div>
               </div>
             </div>
-            <div className="space-y-2">
-              <Label>World Map Background Image <span className="text-muted-foreground font-normal text-xs">(optional)</span></Label>
-              <Input
-                value={catForm.imageUrl}
-                onChange={e => setCatForm(f => ({ ...f, imageUrl: e.target.value }))}
-                placeholder="https://example.com/image.jpg"
-                className="bg-muted/30 border-border"
-              />
-              <p className="text-[11px] text-muted-foreground">This image appears as the full background on the world's level map. Levels are auto-generated: every 3 questions = 1 level (max 30).</p>
-              {catForm.imageUrl.trim() && (
-                <div className="relative mt-1 rounded-lg overflow-hidden border border-border h-32 bg-muted/30">
-                  <img
-                    src={catForm.imageUrl}
-                    alt="Preview"
-                    className="w-full h-full object-cover"
-                    onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
-                  />
+            {!catForm.parentId && (
+              <div className="space-y-2 border-t border-border pt-4">
+                <div className="flex items-center justify-between gap-3">
+                  <Label htmlFor="world-background-media">Animated Map Background <span className="text-muted-foreground font-normal text-xs">(optional)</span></Label>
+                  <span className="text-[9px] font-bold uppercase tracking-[0.14em] text-primary">World only</span>
                 </div>
-              )}
-            </div>
+                <Input
+                  id="world-background-media"
+                  type="url"
+                  inputMode="url"
+                  maxLength={2048}
+                  value={catForm.imageUrl}
+                  onChange={e => setCatForm(f => ({ ...f, imageUrl: e.target.value }))}
+                  placeholder="https://cdn.example.com/world-background.webm"
+                  aria-describedby="world-background-media-help"
+                  aria-invalid={!isSafeMediaUrl(catForm.imageUrl)}
+                  className={cn("bg-muted/30 border-border", !isSafeMediaUrl(catForm.imageUrl) && "border-destructive focus-visible:ring-destructive")}
+                />
+                <p id="world-background-media-help" className="text-[11px] leading-5 text-muted-foreground">Supports MP4, WebM, GIF, animated WebP, AVIF, and normal images. Video plays muted and loops behind the checkpoints. Use compressed media for smooth mobile performance.</p>
+                <WorldMediaPreview url={catForm.imageUrl} />
+              </div>
+            )}
             {!catDialog?.forParent && (
               <div className="space-y-2">
                 <Label>Parent Category</Label>
@@ -1985,7 +2061,7 @@ export default function Admin() {
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setCatDialog(null)}>Cancel</Button>
-            <Button onClick={saveCat} disabled={!catForm.name || createCat.isPending || updateCat.isPending} className="bg-primary text-primary-foreground">
+            <Button onClick={saveCat} disabled={!catForm.name || !isSafeMediaUrl(catForm.imageUrl) || createCat.isPending || updateCat.isPending} className="bg-primary text-primary-foreground">
               {catDialog?.mode === "create" ? "Create" : "Save Changes"}
             </Button>
           </DialogFooter>

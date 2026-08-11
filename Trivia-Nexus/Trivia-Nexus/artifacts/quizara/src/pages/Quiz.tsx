@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useLocation, useSearch } from "wouter";
-import { useGetQuizSession, getGetQuizSessionQueryKey, useSubmitAnswer } from "@workspace/api-client-react";
+import { motion, useReducedMotion } from "framer-motion";
+import { useGetQuizSession, getGetQuizSessionQueryKey, useSubmitAnswer, type AnswerResult } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
-import { Timer, Trophy, CheckCircle2, XCircle, Gem, Music, ArrowUp, ArrowDown, Crosshair, Star, RotateCcw, Map, Heart, Tv2 } from "lucide-react";
+import { Timer, Trophy, CheckCircle2, XCircle, Gem, Music, ArrowUp, ArrowDown, Crosshair, Star, RotateCcw, Map, Heart, Tv2, ArrowRight, Loader2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useSupabaseAuth } from "@/hooks/useSupabaseAuth";
@@ -15,6 +15,8 @@ import PreGamePowerUpModal from "@/components/PreGamePowerUpModal";
 import { useToast } from "@/hooks/use-toast";
 import { authFetch } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
+import { GameShell } from "@/components/quiz/GameShell";
+import { useI18n } from "@/lib/i18n";
 
 // Shuffle an array without mutating
 function shuffleArray<T>(arr: T[]): T[] {
@@ -35,12 +37,14 @@ export default function Quiz() {
   const worldId = searchParams.get("worldId") ?? "";
   const worldName = searchParams.get("worldName") ?? "";
   const isLevelMode = !!levelNum && !!worldId;
+  const reduceMotion = useReducedMotion();
+  const { t, lang } = useI18n();
 
   const { user } = useSupabaseAuth();
   const { hearts, maxHearts, nextRefillMs, canPlay, deductHeart, watchAd } = useHearts(!!user?.id);
   const { toast } = useToast();
 
-  const { data: session, isLoading, refetch } = useGetQuizSession(sessionId || "", {
+  const { data: session, isLoading, isError, refetch } = useGetQuizSession(sessionId || "", {
     query: {
       queryKey: getGetQuizSessionQueryKey(sessionId || ""),
       enabled: !!sessionId,
@@ -49,7 +53,8 @@ export default function Quiz() {
 
   const [timeLeft, setTimeLeft] = useState(30);
   const [selectedOption, setSelectedOption] = useState<number | null>(null);
-  const [answerResult, setAnswerResult] = useState<any>(null);
+  const [answerResult, setAnswerResult] = useState<AnswerResult | null>(null);
+  const [isAdvancing, setIsAdvancing] = useState(false);
 
   // ── Power-up state ──────────────────────────────────────────────────────────
   const [showPreGame, setShowPreGame] = useState(true);
@@ -57,6 +62,10 @@ export default function Quiz() {
   const [hiddenOptions, setHiddenOptions] = useState<number[]>([]);
   const [usedEffects, setUsedEffects] = useState<Set<string>>(new Set());
   const [doubleScoreRemaining, setDoubleScoreRemaining] = useState(0);
+  const [doubleScoreItemId, setDoubleScoreItemId] = useState<string | null>(null);
+  // Item id optimistically spent on the in-flight answer, so a failed submit can
+  // put the power-up back rather than silently swallowing it.
+  const pendingDoubleRef = useRef<string | null>(null);
   const frozenTimerRef = useRef(false);
   const [frozenTimerDisplay, setFrozenTimerDisplay] = useState(false);
   // ────────────────────────────────────────────────────────────────────────────
@@ -80,6 +89,7 @@ export default function Quiz() {
   // Hotspot state
   const [hotspotClick, setHotspotClick] = useState<{ x: number; y: number } | null>(null);
   const hotspotImgRef = useRef<HTMLImageElement>(null);
+  const questionHeadingRef = useRef<HTMLHeadingElement>(null);
 
   // Fetch power-up inventory when user is known
   useEffect(() => {
@@ -99,32 +109,50 @@ export default function Quiz() {
 
   const submitAnswer = useSubmitAnswer({
     mutation: {
-      onSuccess: (result: any) => {
+      onError: (err: any) => {
+        // The answer was not recorded. Undo the optimistic power-up spend and let
+        // the player pick again, instead of leaving the option stuck and selected.
+        const spentItemId = pendingDoubleRef.current;
+        pendingDoubleRef.current = null;
+        if (spentItemId) {
+          setDoubleScoreItemId(spentItemId);
+          setDoubleScoreRemaining(1);
+          setPowerUpInventory(prev =>
+            prev.map(p => p.itemId === spentItemId ? { ...p, quantity: p.quantity + 1 } : p)
+          );
+        }
+        setSelectedOption(null);
+        toast({
+          title: t.quiz.answerNotRecorded,
+          description: err?.data?.error ?? t.quiz.pleaseTryAgain,
+          variant: "destructive",
+        });
+      },
+      onSuccess: (result) => {
+        pendingDoubleRef.current = null;
         setAnswerResult(result);
         if (isLevelMode && result.isLastQuestion) {
           const passed = (result.sessionScore ?? 0) >= 30;
           setLevelPassed(passed);
           if (!passed) { deductHeart(); }
-          // Record progress server-side
-          supabase.auth.getSession().then(({ data: { session: authSession } }) => {
-            authFetch(`/api/quiz/levels/${sessionId}/record`, {
-              method: "POST",
-              headers: { 
-                "Content-Type": "application/json",
-                ...(authSession?.access_token ? { "Authorization": `Bearer ${authSession.access_token}` } : {})
-              },
-              credentials: "include",
-              body: JSON.stringify({ worldId, levelNumber: levelNum, passed }),
-            }).then(async r => {
-            if (r.status === 401) {
-              toast({
-                title: "Authentication Error",
-                description: "Your session has expired. Progress could not be saved.",
-                variant: "destructive",
-              });
-            }
-          }).catch(() => {});
-          });
+          // Authenticated progress syncs to the server. Guest progress remains local.
+          if (user?.id) {
+            supabase.auth.getSession().then(({ data: { session: authSession } }) => {
+              authFetch(`/api/quiz/levels/${sessionId}/record`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  ...(authSession?.access_token ? { "Authorization": `Bearer ${authSession.access_token}` } : {})
+                },
+                credentials: "include",
+                body: JSON.stringify({ worldId, levelNumber: levelNum, passed }),
+              }).then(async response => {
+                if (response.status === 401) {
+                  toast({ title: t.quiz.authError, description: t.quiz.progressNotSaved, variant: "destructive" });
+                }
+              }).catch(() => {});
+            });
+          }
           // Also persist to localStorage for guest users
           if (passed) {
             try {
@@ -137,21 +165,18 @@ export default function Quiz() {
           }
           // Show overlay after a short delay so user sees the last answer feedback
           setTimeout(() => setShowLevelOverlay(true), 200);
-        } else if (!result.isLastQuestion) {
-          // Auto-advance between questions (snappy delay for feedback visibility)
-          setTimeout(handleNext, 400);
         }
       }
     }
   });
 
   const question = session?.currentQuestion;
-  const qType = (question as any)?.questionType ?? "multiple_choice";
+  const qType = question?.questionType ?? "multiple_choice";
 
   // Initialize complex type state when question changes
   useEffect(() => {
     if (!question) return;
-    const type = (question as any).questionType ?? "multiple_choice";
+    const type = question.questionType ?? "multiple_choice";
     const opts = question.options ?? [];
 
     if (type === "ordering") {
@@ -169,6 +194,12 @@ export default function Quiz() {
     setHiddenOptions([]);
     setUsedEffects(new Set());
   }, [question?.id]);
+
+  useEffect(() => {
+    if (showPreGame || !question) return;
+    const focusTimer = window.setTimeout(() => questionHeadingRef.current?.focus(), 80);
+    return () => window.clearTimeout(focusTimer);
+  }, [question?.id, showPreGame]);
 
   // Timer logic (respects pre-game modal and freeze power-up)
   useEffect(() => {
@@ -218,11 +249,21 @@ export default function Quiz() {
           setHiddenOptions(data.eliminatedOptions);
           setPowerUpInventory(prev => prev.map(p => p.itemId === itemId ? { ...p, quantity: p.quantity - 1 } : p).filter(p => p.quantity > 0));
           setUsedEffects(prev => new Set([...prev, effect]));
-          toast({ title: "✂️ 50/50 activated!", description: "2 wrong answers removed." });
+          toast({ title: `✂️ ${t.quiz.fiftyActivated}`, description: t.quiz.optionsRemoved });
         }
       } catch {}
       return;
     }
+    if (effect === "double_score") {
+      // Not consumed here — the answer endpoint debits the item as it applies the
+      // multiplier, so the score shown always matches the score persisted.
+      setDoubleScoreItemId(itemId);
+      setDoubleScoreRemaining(1);
+      setUsedEffects(prev => new Set([...prev, effect]));
+      toast({ title: `✖️ ${t.quiz.doubleArmed}`, description: t.quiz.doubleArmedHint });
+      return;
+    }
+
     // Consume item
     try {
       const res = await authFetch("/api/marketplace/use-item", {
@@ -237,20 +278,16 @@ export default function Quiz() {
     switch (effect) {
       case "extra_time":
         setTimeLeft(t => t + 15);
-        toast({ title: "⏰ +15 seconds added!" });
+        toast({ title: `⏰ ${t.quiz.timeAdded}` });
         break;
       case "skip_question":
-        toast({ title: "⏭️ Question skipped!" });
+        toast({ title: `⏭️ ${t.quiz.skipped}` });
         handleTimeUp();
         return;
-      case "double_score":
-        setDoubleScoreRemaining(3);
-        toast({ title: "✖️ Double Score active for 3 questions!" });
-        break;
       case "freeze_timer":
         frozenTimerRef.current = true;
         setFrozenTimerDisplay(true);
-        toast({ title: "❄️ Timer frozen for 10 seconds!" });
+        toast({ title: `❄️ ${t.quiz.timerFrozen}` });
         setTimeout(() => { frozenTimerRef.current = false; setFrozenTimerDisplay(false); }, 10000);
         break;
     }
@@ -260,13 +297,44 @@ export default function Quiz() {
   const handleOptionSelect = (index: number) => {
     if (selectedOption !== null || answerResult || submitAnswer.isPending) return;
     setSelectedOption(index);
-    const useDouble = doubleScoreRemaining > 0;
-    if (useDouble) setDoubleScoreRemaining(d => d - 1);
+    const useDouble = doubleScoreRemaining > 0 && doubleScoreItemId !== null;
+    if (useDouble) {
+      pendingDoubleRef.current = doubleScoreItemId;
+      setDoubleScoreRemaining(0);
+      setDoubleScoreItemId(null);
+      // Kept at quantity 0 rather than filtered out, so onError can restore it.
+      // PowerUpBar already hides zero-quantity entries.
+      setPowerUpInventory(prev =>
+        prev.map(p => p.itemId === doubleScoreItemId ? { ...p, quantity: p.quantity - 1 } : p)
+      );
+    }
     submitAnswer.mutate({
       sessionId: sessionId || "",
-      data: { questionId: question?.id || "", selectedAnswer: index, ...(useDouble ? { doubleScore: true } : {}) } as any,
+      data: {
+        questionId: question?.id || "",
+        selectedAnswer: index,
+        ...(useDouble ? { doubleScore: true, doubleScoreItemId } : {}),
+      } as any,
     });
   };
+
+  useEffect(() => {
+    const supportsNumberKeys = ["multiple_choice", "true_false", "fill_blank", "audio", "image"].includes(qType);
+    if (!supportsNumberKeys || answerResult || submitAnswer.isPending || showPreGame) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
+      const optionIndex = Number(event.key) - 1;
+      if (optionIndex >= 0 && optionIndex < (question?.options?.length ?? 0)) {
+        event.preventDefault();
+        handleOptionSelect(optionIndex);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [qType, answerResult, submitAnswer.isPending, showPreGame, question?.id]);
 
   const handleOrderingSubmit = () => {
     if (answerResult || submitAnswer.isPending) return;
@@ -318,12 +386,8 @@ export default function Quiz() {
     });
   };
 
-  const handleHotspotClick = (e: React.MouseEvent<HTMLImageElement>) => {
+  const submitHotspotPoint = (click: { x: number; y: number }) => {
     if (answerResult || submitAnswer.isPending) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = Math.round(((e.clientX - rect.left) / rect.width) * 100);
-    const y = Math.round(((e.clientY - rect.top) / rect.height) * 100);
-    const click = { x, y };
     setHotspotClick(click);
     submitAnswer.mutate({
       sessionId: sessionId || "",
@@ -331,7 +395,30 @@ export default function Quiz() {
     });
   };
 
-  const handleNext = () => {
+  const handleHotspotClick = (event: React.MouseEvent<HTMLImageElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    submitHotspotPoint({
+      x: Math.round(((event.clientX - rect.left) / rect.width) * 100),
+      y: Math.round(((event.clientY - rect.top) / rect.height) * 100),
+    });
+  };
+
+  const handleHotspotKeyDown = (event: React.KeyboardEvent<HTMLImageElement>) => {
+    if (answerResult || submitAnswer.isPending) return;
+    const current = hotspotClick ?? { x: 50, y: 50 };
+    const movement: Record<string, { x: number; y: number }> = {
+      ArrowLeft: { x: -5, y: 0 }, ArrowRight: { x: 5, y: 0 }, ArrowUp: { x: 0, y: -5 }, ArrowDown: { x: 0, y: 5 },
+    };
+    if (movement[event.key]) {
+      event.preventDefault();
+      setHotspotClick({ x: Math.max(0, Math.min(100, current.x + movement[event.key].x)), y: Math.max(0, Math.min(100, current.y + movement[event.key].y)) });
+    } else if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      submitHotspotPoint(current);
+    }
+  };
+
+  const handleNext = async () => {
     if (answerResult?.isLastQuestion) {
       if (isLevelMode) return; // overlay handles navigation
       // Streak checkin — store milestone result for Results page
@@ -348,10 +435,15 @@ export default function Quiz() {
         .catch(() => {});
       setLocation(`/results/${sessionId}`);
     } else {
-      setSelectedOption(null);
-      setAnswerResult(null);
-      setHotspotClick(null);
-      refetch();
+      setIsAdvancing(true);
+      try {
+        await refetch();
+        setSelectedOption(null);
+        setAnswerResult(null);
+        setHotspotClick(null);
+      } finally {
+        setIsAdvancing(false);
+      }
     }
   };
 
@@ -436,55 +528,63 @@ export default function Quiz() {
     );
   }
 
-  if (isLoading || !session) {
+  if (isLoading) {
     return (
-      <div className="flex-1 container max-w-4xl mx-auto px-4 py-10 flex flex-col gap-6">
-        <div className="flex justify-between items-center">
-          <Skeleton className="h-8 w-32" />
-          <Skeleton className="h-8 w-24" />
+      <GameShell index="QUIZ / 00" label={t.quiz.arenaLabel} exitLabel={t.quiz.exit} onExit={() => setLocation(worldId ? `/worlds/${worldId}` : "/categories")}>
+        <div className="grid flex-1 content-center gap-8">
+          <div className="grid grid-cols-3 items-center border-y border-white/10 py-4"><Skeleton className="h-8 w-24 rounded-none" /><Skeleton className="mx-auto h-12 w-20 rounded-none" /><Skeleton className="ml-auto h-8 w-24 rounded-none rtl:ml-0 rtl:mr-auto" /></div>
+          <div className="mx-auto w-full max-w-4xl space-y-7"><Skeleton className="h-5 w-32 rounded-none" /><Skeleton className="h-28 w-full rounded-none" /><div className="grid gap-3 sm:grid-cols-2">{Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-20 rounded-none" />)}</div></div>
         </div>
-        <Skeleton className="h-4 w-full" />
-        <Skeleton className="h-48 w-full mt-8 rounded-xl" />
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-8">
-          {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-20 rounded-xl" />)}
+      </GameShell>
+    );
+  }
+
+  if (isError || !session) {
+    return (
+      <GameShell index="QUIZ / --" label={t.quiz.arenaLabel} exitLabel={t.quiz.exit} onExit={() => setLocation(worldId ? `/worlds/${worldId}` : "/categories")}>
+        <div className="mx-auto flex min-h-[70vh] w-full max-w-xl flex-col items-start justify-center">
+          <span className="text-7xl font-black text-primary/20">404</span>
+          <h1 className="mt-6 text-4xl font-extrabold tracking-[-0.05em] sm:text-6xl">{t.quiz.notFound}</h1>
+          <p className="mt-5 max-w-md text-sm leading-7 text-muted-foreground">{t.quiz.notFoundHint}</p>
+          <div className="mt-8 flex gap-3"><Button onClick={() => refetch()} className="rounded-none"><RotateCcw className="mr-2 h-4 w-4" />{t.quiz.retry}</Button><Button variant="outline" onClick={() => setLocation(worldId ? `/worlds/${worldId}` : "/categories")} className="rounded-none">{t.quiz.exit}</Button></div>
         </div>
-      </div>
+      </GameShell>
     );
   }
 
   // Level mode overlay (pass/fail)
   if (showLevelOverlay) {
     return (
-      <div className="flex-1 flex items-center justify-center p-6">
+      <GameShell index={`LEVEL / ${String(levelNum).padStart(2, "0")}`} label={worldName || t.quiz.world} exitLabel={t.quiz.backToMap} onExit={() => setLocation(`/worlds/${worldId}`)} compact>
         <div className={cn(
-          "w-full max-w-md rounded-3xl border p-10 flex flex-col items-center text-center gap-6 shadow-2xl",
+          "mx-auto flex min-h-[76vh] w-full max-w-3xl flex-col items-center justify-center gap-8 border-y p-6 text-center sm:p-12",
           levelPassed
-            ? "border-amber-500/30 bg-gradient-to-b from-amber-500/10 to-card"
-            : "border-destructive/30 bg-gradient-to-b from-destructive/10 to-card"
+            ? "border-primary/30"
+            : "border-rose-400/30"
         )}>
           {/* Icon */}
           <div className={cn(
-            "w-24 h-24 rounded-full flex items-center justify-center border-4",
-            levelPassed ? "border-amber-400 bg-amber-500/20" : "border-destructive bg-destructive/20"
+            "grid h-28 w-28 place-items-center rounded-full border",
+            levelPassed ? "border-primary/40 bg-primary text-primary-foreground" : "border-rose-400/40 bg-rose-400 text-background"
           )}>
             {levelPassed
-              ? <Star className="h-12 w-12 text-amber-400 fill-amber-400" />
-              : <XCircle className="h-12 w-12 text-destructive" />
+              ? <Star className="h-12 w-12 fill-current" />
+              : <XCircle className="h-12 w-12" />
             }
           </div>
 
           {/* Title */}
           <div>
             <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-1">
-              {worldName} — Level {levelNum}
+              {worldName} / {t.quiz.level} {levelNum}
             </p>
-            <h2 className={cn("text-4xl font-black", levelPassed ? "text-amber-400" : "text-destructive")}>
-              {levelPassed ? "Level Complete!" : "Level Failed"}
+            <h2 className={cn("text-[clamp(3rem,8vw,6.5rem)] font-black leading-[0.85] tracking-[-0.07em]", levelPassed ? "text-primary" : "text-foreground")}>
+              {levelPassed ? t.quiz.levelComplete : t.quiz.levelFailed}
             </h2>
-            <p className="text-muted-foreground mt-2 text-sm">
+            <p className="mx-auto mt-5 max-w-xl text-sm leading-7 text-muted-foreground">
               {levelPassed
-                ? "You answered all 3 questions correctly. The next level is now unlocked!"
-                : "You need to answer all 3 questions correctly to pass. Try again!"}
+                ? t.quiz.levelCompleteHint
+                : t.quiz.levelFailedHint}
             </p>
           </div>
 
@@ -494,12 +594,12 @@ export default function Quiz() {
               const correct = i < (answerResult?.sessionScore ?? 0) / 10;
               return (
                 <div key={i} className={cn(
-                  "w-10 h-10 rounded-full border-2 flex items-center justify-center",
-                  correct ? "border-green-500 bg-green-500/20" : "border-white/20 bg-card"
+                    "grid h-11 w-11 place-items-center rounded-full border",
+                    correct ? "border-emerald-400 text-emerald-400" : "border-white/15 text-muted-foreground"
                 )}>
                   {correct
-                    ? <CheckCircle2 className="h-5 w-5 text-green-500" />
-                    : <XCircle className="h-5 w-5 text-muted-foreground/40" />
+                    ? <CheckCircle2 className="h-5 w-5" />
+                    : <XCircle className="h-5 w-5" />
                   }
                 </div>
               );
@@ -513,21 +613,14 @@ export default function Quiz() {
               {!failAdClaimed ? (
                 <button
                   onClick={() => setShowFailAd(true)}
-                  className="w-full rounded-2xl px-4 py-3.5 flex items-center gap-3 transition-all hover:brightness-110 active:scale-[0.98]"
-                  style={{
-                    background: "linear-gradient(135deg, rgba(99,102,241,0.2), rgba(6,182,212,0.15))",
-                    border: "1px solid rgba(99,102,241,0.4)"
-                  }}
+                  className="focus-ring flex min-h-14 w-full items-center gap-3 border border-white/15 px-4 py-3.5 transition-colors hover:border-primary/45 active:bg-primary/10"
                 >
-                  <div
-                    className="h-10 w-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                    style={{ background: "linear-gradient(135deg, #6366f1, #06b6d4)" }}
-                  >
-                    <Tv2 className="h-5 w-5 text-white" />
+                  <div className="grid h-10 w-10 flex-shrink-0 place-items-center border border-primary/30">
+                    <Tv2 className="h-5 w-5 text-primary" />
                   </div>
                   <div className="flex-1 text-left">
-                    <p className="text-sm font-bold text-foreground">Watch Ad</p>
-                    <p className="text-xs text-muted-foreground">Restore +1 ❤️ and earn 2× Bonus Coins & XP</p>
+                    <p className="text-sm font-bold text-foreground">{t.quiz.watchAd}</p>
+                    <p className="text-xs text-muted-foreground">{t.quiz.restoreHeart}</p>
                   </div>
                   <div className="flex flex-col items-end gap-1">
                     <span className="text-xs font-bold text-red-400 flex items-center gap-0.5">
@@ -537,33 +630,27 @@ export default function Quiz() {
                   </div>
                 </button>
               ) : failBonus && (failBonus.coins > 0 || failBonus.xp > 0) ? (
-                <div
-                  className="w-full rounded-2xl px-4 py-3 flex items-center gap-3"
-                  style={{ background: "rgba(99,102,241,0.12)", border: "1px solid rgba(99,102,241,0.25)" }}
-                >
+                <div className="flex w-full items-center gap-3 border border-emerald-400/25 px-4 py-3">
                   <div className="h-8 w-8 rounded-full bg-green-500/20 flex items-center justify-center flex-shrink-0">
                     <CheckCircle2 className="h-4 w-4 text-green-500" />
                   </div>
                   <div className="flex-1">
-                    <p className="text-xs font-bold text-green-400">Bonus claimed!</p>
+                    <p className="text-xs font-bold text-green-400">{t.quiz.bonusClaimed}</p>
                     <p className="text-xs text-muted-foreground">
                       +1 ❤️{failBonus.coins > 0 ? ` · +${failBonus.coins} coins` : ""}{failBonus.xp > 0 ? ` · +${failBonus.xp} XP` : ""}
                     </p>
                   </div>
                 </div>
               ) : (
-                <div
-                  className="w-full rounded-2xl px-4 py-3 flex items-center gap-3"
-                  style={{ background: "rgba(99,102,241,0.12)", border: "1px solid rgba(99,102,241,0.25)" }}
-                >
+                <div className="flex w-full items-center gap-3 border border-emerald-400/25 px-4 py-3">
                   <CheckCircle2 className="h-4 w-4 text-green-500 flex-shrink-0" />
-                  <p className="text-xs font-bold text-green-400">+1 Heart restored!</p>
+                  <p className="text-xs font-bold text-green-400">{t.quiz.heartRestored}</p>
                 </div>
               )}
 
               {/* Hearts count */}
-              <div className="flex flex-col items-center gap-1.5 w-full border border-border/50 rounded-2xl py-3 bg-muted/20">
-                <p className="text-xs text-muted-foreground font-medium">Hearts remaining</p>
+              <div className="flex w-full flex-col items-center gap-2 border-y border-white/10 py-4">
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">{t.quiz.heartsRemaining}</p>
                 <HeartsDisplay hearts={hearts} maxHearts={maxHearts} nextRefillMs={nextRefillMs} size="md" />
               </div>
             </div>
@@ -573,37 +660,37 @@ export default function Quiz() {
           <div className="flex flex-col sm:flex-row gap-3 w-full">
             <Button
               variant="outline"
-              className="flex-1 border-border"
+              className="min-h-12 flex-1 rounded-none border-white/15"
               onClick={() => setLocation(`/worlds/${worldId}`)}
             >
               <Map className="mr-2 h-4 w-4" />
-              Back to Map
+              {t.quiz.backToMap}
             </Button>
             {levelPassed ? (
               <Button
-                className="flex-1 bg-gradient-to-r from-secondary to-primary text-white font-semibold"
+                className="min-h-12 flex-1 rounded-none font-semibold"
                 disabled={startingNext}
                 onClick={handleNextLevel}
               >
                 <Star className="mr-2 h-4 w-4 fill-current" />
-                {startingNext ? "Loading…" : "Next Level →"}
+                {startingNext ? t.quiz.loading : t.quiz.nextLevel}
               </Button>
             ) : canPlay || failAdClaimed ? (
               <Button
-                className="flex-1 bg-primary text-primary-foreground"
+                className="min-h-12 flex-1 rounded-none bg-primary text-primary-foreground"
                 disabled={startingNext}
                 onClick={handleTryAgain}
               >
                 <RotateCcw className="mr-2 h-4 w-4" />
-                {startingNext ? "Loading…" : "Try Again"}
+                {startingNext ? t.quiz.loading : t.quiz.tryAgain}
               </Button>
             ) : (
               <Button
-                className="flex-1 bg-muted text-muted-foreground cursor-not-allowed"
+                className="min-h-12 flex-1 cursor-not-allowed rounded-none bg-muted text-muted-foreground"
                 disabled
               >
                 <Heart className="mr-2 h-4 w-4 text-red-400 fill-red-400/50" />
-                Wait for a heart to retry
+                {t.quiz.waitForHeart}
               </Button>
             )}
           </div>
@@ -615,13 +702,13 @@ export default function Quiz() {
               onClose={() => setShowFailAd(false)}
               bonus={
                 (answerResult?.sessionScore ?? 0) > 0
-                  ? { coins: Math.floor((answerResult.sessionScore / 10)) * 10, xp: (answerResult.sessionScore ?? 0) * 2 }
+                  ? { coins: Math.floor(((answerResult?.sessionScore ?? 0) / 10)) * 10, xp: (answerResult?.sessionScore ?? 0) * 2 }
                   : undefined
               }
             />
           )}
         </div>
-      </div>
+      </GameShell>
     );
   }
 
@@ -634,6 +721,17 @@ export default function Quiz() {
 
   const progress = (session.questionNumber / session.totalQuestions) * 100;
   const opts = question.options ?? [];
+  const localizedOptions = lang === "ar" && question.optionsAr?.length === opts.length ? question.optionsAr : opts;
+  const localizedQuestion = lang === "ar" && question.questionAr ? question.questionAr : question.question;
+  const localizedTokenMap = new globalThis.Map<string, string>();
+  opts.forEach((option: string, index: number) => {
+    const localized = localizedOptions[index] ?? option;
+    const sourceParts = option.split(":::");
+    const localizedParts = localized.split(":::");
+    sourceParts.forEach((part, partIndex) => localizedTokenMap.set(part.trim(), (localizedParts[partIndex] ?? part).trim()));
+  });
+  const displayToken = (value: string) => localizedTokenMap.get(value.trim()) ?? value;
+  const localizedExplanation = lang === "ar" && answerResult?.explanationAr ? answerResult.explanationAr : answerResult?.explanation;
 
   // For matching: parse left items from options
   const leftItems = opts.map((o: string) => o.split(":::")[0]?.trim() ?? o);
@@ -648,49 +746,51 @@ export default function Quiz() {
   const [hx1, hy1, hx2, hy2] = hotspotRegion;
 
   return (
-    <div className="flex-1 container max-w-4xl mx-auto px-4 py-8 md:py-12 flex flex-col min-h-[calc(100vh-4rem)]">
+    <GameShell index={`QUIZ / ${String(session.questionNumber).padStart(2, "0")}`} label={session.categoryName || t.quiz.arenaLabel} exitLabel={isLevelMode ? t.quiz.backToMap : t.quiz.exit} onExit={() => setLocation(isLevelMode ? `/worlds/${worldId}` : "/categories")}>
 
       {/* Header Stats */}
-      <div className="flex items-center justify-between mb-6 bg-card border border-border p-4 rounded-xl shadow-sm">
-        <div className="flex items-center gap-2">
+      <div className="grid grid-cols-[1fr_auto_1fr] items-center border-y border-white/10 py-3 sm:py-4">
+        <div className="flex min-w-0 items-center gap-2">
           {isLevelMode ? (
             <div className="flex flex-col items-start gap-0.5">
               <div className="flex items-center gap-1.5">
-                <Star className="h-4 w-4 text-amber-400 fill-amber-400" />
-                <span className="font-bold text-base">Level {levelNum}</span>
+                <Star className="h-4 w-4 fill-primary text-primary" />
+                <span className="text-xs font-bold uppercase tracking-[0.14em] sm:text-sm">{t.quiz.level} {levelNum}</span>
               </div>
               <HeartsDisplay hearts={hearts} maxHearts={maxHearts} nextRefillMs={nextRefillMs} size="sm" watchAd={watchAd} />
             </div>
           ) : (
             <>
-              <Trophy className="h-5 w-5 text-primary" />
-              <span className="font-bold text-lg">{session.score} pts</span>
+              <Trophy className="h-4 w-4 text-primary" />
+              <span className="text-xs font-bold uppercase tracking-[0.14em] sm:text-sm">{session.score} {t.results.points}</span>
             </>
           )}
         </div>
-        <div className="flex items-center gap-2 text-xl font-mono font-bold bg-muted px-4 py-2 rounded-lg border border-border">
-          <Timer className={cn("h-5 w-5", timeLeft <= 5 ? "text-destructive animate-pulse" : "text-primary")} />
-          <span className={timeLeft <= 5 ? "text-destructive" : ""}>
+        <div role="timer" aria-label={`${t.quiz.timeLeft}: ${timeLeft}`} className={cn("flex min-h-12 items-center gap-2 border px-3 text-lg font-black tabular-nums sm:px-5 sm:text-xl", timeLeft <= 5 ? "border-rose-400/60 text-rose-400" : "border-white/15 text-primary")}>
+          <Timer className={cn("h-4 w-4", timeLeft <= 5 && "animate-pulse")} />
+          <span>
             00:{timeLeft.toString().padStart(2, "0")}
           </span>
         </div>
-        <div className="flex flex-col items-end">
-          <span className="text-sm text-muted-foreground font-medium">Question {session.questionNumber} of {session.totalQuestions}</span>
+        <div className="flex min-w-0 flex-col items-end">
+          <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground sm:text-xs">{t.quiz.question} {session.questionNumber} {t.quiz.of} {session.totalQuestions}</span>
           {isLevelMode && (
-            <span className="text-[10px] text-muted-foreground/60">{worldName}</span>
+            <span className="max-w-24 truncate text-[9px] text-muted-foreground/60 sm:max-w-48">{worldName}</span>
           )}
         </div>
       </div>
 
-      <Progress value={progress} className="h-2 mb-4 bg-muted" />
+      <div className="relative mb-5 h-px bg-white/10" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress)}>
+        <motion.span className="absolute inset-y-0 left-0 w-full origin-left bg-primary rtl:left-auto rtl:right-0 rtl:origin-right" initial={false} animate={{ scaleX: progress / 100 }} transition={{ duration: reduceMotion ? 0 : 0.35, ease: [0.16, 1, 0.3, 1] }} />
+      </div>
 
       {/* Power-up bar */}
       {!answerResult && (
         <div className="mb-4">
           {(frozenTimerDisplay || doubleScoreRemaining > 0) && (
             <div className="flex items-center gap-2 justify-center mb-2 flex-wrap text-xs font-semibold">
-              {frozenTimerDisplay && <span className="px-2 py-0.5 rounded-full bg-sky-500/15 text-sky-400 border border-sky-500/30 animate-pulse">❄️ Timer Frozen</span>}
-              {doubleScoreRemaining > 0 && <span className="px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/30">✖️ 2× Score ({doubleScoreRemaining} left)</span>}
+              {frozenTimerDisplay && <span className="border border-primary/30 px-2 py-1 text-primary">❄️ {t.quiz.frozenStatus}</span>}
+              {doubleScoreRemaining > 0 && <span className="border border-primary/30 px-2 py-1 text-primary">✖️ {t.quiz.doubleStatus}</span>}
             </div>
           )}
           <PowerUpBar
@@ -703,59 +803,60 @@ export default function Quiz() {
             disabled={!!answerResult || submitAnswer.isPending}
             allowedEffects={["fifty_fifty", "extra_time", "skip_question", "double_score", "freeze_timer"]}
             currentQuestionType={qType}
+            editorial
           />
         </div>
       )}
 
       {/* Question Card */}
-      <div className="bg-card border border-border rounded-2xl p-6 md:p-8 shadow-lg mb-6 relative overflow-hidden">
-        <div className="absolute top-0 left-0 w-1 h-full bg-primary" />
+      <section className="relative mb-5 border-b border-white/10 pb-6 pt-4 sm:mb-7 sm:pb-9 sm:pt-7">
+        <div className="mb-5 flex items-center gap-3 text-[9px] font-bold uppercase tracking-[0.2em] text-muted-foreground"><span className="text-primary">{String(session.questionNumber).padStart(2, "0")}</span><span className="h-px w-8 bg-white/15" />{t.quiz.questionPrompt}</div>
 
         {/* Audio player for audio type */}
-        {qType === "audio" && (question as any).imageUrl && (
-          <div className="mb-4">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="h-10 w-10 rounded-full bg-sky-500/20 border border-sky-500/30 flex items-center justify-center">
-                <Music className="h-5 w-5 text-sky-400" />
+        {qType === "audio" && question.imageUrl && (
+          <div className="mb-6 border-y border-white/10 py-4">
+            <div className="mb-3 flex items-center gap-3">
+              <div className="grid h-10 w-10 place-items-center border border-primary/30 text-primary">
+                <Music className="h-5 w-5" />
               </div>
-              <span className="text-sm text-sky-400 font-medium">Listen and answer</span>
+              <span className="text-sm font-medium text-primary">{t.quiz.listenAndAnswer}</span>
             </div>
             <audio
               controls
               autoPlay
-              src={(question as any).imageUrl}
-              className="w-full rounded-lg"
+              src={question.imageUrl}
+              className="w-full"
             />
           </div>
         )}
 
         {/* Image for image type */}
-        {qType === "image" && (question as any).imageUrl && (
-          <div className="mb-4 rounded-xl overflow-hidden border border-border">
-            <img src={(question as any).imageUrl} alt="Question" className="w-full max-h-56 object-cover" />
+        {qType === "image" && question.imageUrl && (
+          <div className="mb-6 overflow-hidden border border-white/10">
+            <img src={question.imageUrl} alt={t.quiz.questionImage} className="max-h-72 w-full object-cover" />
           </div>
         )}
 
-        <h2 className="text-2xl md:text-3xl font-bold leading-tight">{question.question}</h2>
+        <h1 ref={questionHeadingRef} tabIndex={-1} className="focus:outline-none max-w-4xl text-[clamp(1.75rem,4.8vw,4.25rem)] font-extrabold leading-[1.02] tracking-[-0.045em]">{localizedQuestion}</h1>
 
         {/* Type label */}
         {(qType === "ordering" || qType === "matching" || qType === "hotspot") && (
-          <p className="text-sm text-muted-foreground mt-2">
-            {qType === "ordering" && "Use the arrows to arrange items in the correct order."}
-            {qType === "matching" && "Click a left item, then click the matching right item."}
-            {qType === "hotspot" && "Click the correct region on the image below."}
+          <p className="mt-4 max-w-2xl text-sm leading-6 text-muted-foreground">
+            {qType === "ordering" && t.quiz.orderingHint}
+            {qType === "matching" && t.quiz.matchingHint}
+            {qType === "hotspot" && t.quiz.hotspotHint}
           </p>
         )}
-      </div>
+      </section>
 
       {/* ── MULTIPLE CHOICE / TRUE-FALSE / FILL_BLANK / AUDIO ── */}
       {(qType === "multiple_choice" || qType === "true_false" || qType === "fill_blank" || qType === "audio" || qType === "image") && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+        <div className="mb-8 grid grid-cols-1 gap-3 sm:grid-cols-2">
           {opts.map((option: string, index: number) => {
             const isHidden = hiddenOptions.includes(index) && !answerResult;
             if (isHidden) return (
-              <div key={index} className="relative text-left p-6 rounded-xl border-2 border-border/20 bg-muted/10 opacity-25 cursor-not-allowed select-none">
-                <span className="text-lg font-medium text-transparent select-none">—</span>
+              <div key={index} className="relative min-h-20 select-none border border-white/5 opacity-25">
+                <span className="sr-only">{t.quiz.optionRemoved}</span>
               </div>
             );
 
@@ -763,26 +864,29 @@ export default function Quiz() {
             const isCorrect = answerResult?.correctAnswer === index;
             const isWrongSelected = isSelected && !answerResult?.correct;
 
-            let stateClass = "hover:border-primary/50 hover:bg-primary/5 border-border bg-card";
+            let stateClass = "border-white/12 bg-background/45 hover:border-primary/55 hover:bg-primary/[0.035]";
             if (answerResult) {
-              if (isCorrect) stateClass = "bg-green-500/20 border-green-500 text-green-400";
-              else if (isWrongSelected) stateClass = "bg-destructive/20 border-destructive text-destructive";
-              else stateClass = "opacity-50 border-border bg-card";
+              if (isCorrect) stateClass = "border-emerald-400 bg-emerald-400/10 text-emerald-300";
+              else if (isWrongSelected) stateClass = "border-rose-400 bg-rose-400/10 text-rose-300";
+              else stateClass = "border-white/8 bg-background/35 opacity-45";
             }
 
             return (
-              <button
+              <motion.button
                 key={index}
                 disabled={!!answerResult || submitAnswer.isPending}
                 onClick={() => handleOptionSelect(index)}
-                className={cn("relative text-left p-6 rounded-xl border-2 transition-all duration-200 overflow-hidden", stateClass)}
+                aria-pressed={isSelected}
+                whileTap={reduceMotion ? undefined : { scale: 0.985 }}
+                className={cn("focus-ring group relative min-h-20 overflow-hidden border p-4 text-left transition-colors duration-200 sm:min-h-24 sm:p-5 rtl:text-right", stateClass)}
               >
-                <div className="flex justify-between items-center gap-4">
-                  <span className="text-lg font-medium">{option}</span>
-                  {answerResult && isCorrect && <CheckCircle2 className="h-6 w-6 shrink-0" />}
-                  {answerResult && isWrongSelected && <XCircle className="h-6 w-6 shrink-0" />}
+                <div className="flex items-center justify-between gap-4">
+                  <span className="flex min-w-0 items-center gap-4"><span className={cn("grid h-8 w-8 shrink-0 place-items-center border text-[10px] font-black", isSelected ? "border-current" : "border-white/15 text-muted-foreground")}>{String.fromCharCode(65 + index)}</span><span className="text-base font-semibold leading-6 sm:text-lg">{localizedOptions[index] ?? option}</span></span>
+                  {submitAnswer.isPending && isSelected && <Loader2 className="h-5 w-5 shrink-0 animate-spin" />}
+                  {answerResult && isCorrect && <CheckCircle2 className="h-5 w-5 shrink-0" aria-hidden="true" />}
+                  {answerResult && isWrongSelected && <XCircle className="h-5 w-5 shrink-0" aria-hidden="true" />}
                 </div>
-              </button>
+              </motion.button>
             );
           })}
         </div>
@@ -803,23 +907,25 @@ export default function Quiz() {
             return (
               <div
                 key={`${item}-${idx}`}
-                className={cn("flex items-center gap-3 p-4 rounded-xl border-2 transition-all", itemClass)}
+                className={cn("flex min-h-16 items-center gap-3 border p-4 transition-colors", itemClass)}
               >
                 <span className="text-muted-foreground font-bold w-6 text-sm shrink-0">{idx + 1}.</span>
-                <span className="flex-1 font-medium">{item}</span>
+                <span className="flex-1 font-medium">{displayToken(item)}</span>
                 {!answerResult && (
                   <div className="flex gap-1 shrink-0">
                     <button
                       onClick={() => moveOrderingItem(idx, -1)}
                       disabled={idx === 0}
-                      className="h-8 w-8 rounded-lg border border-border flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-primary/50 disabled:opacity-30 transition-colors"
+                      aria-label={`${t.quiz.moveUp}: ${displayToken(item)}`}
+                      className="focus-ring grid h-11 w-11 place-items-center border border-white/15 text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground disabled:opacity-30"
                     >
                       <ArrowUp className="h-4 w-4" />
                     </button>
                     <button
                       onClick={() => moveOrderingItem(idx, 1)}
                       disabled={idx === orderedItems.length - 1}
-                      className="h-8 w-8 rounded-lg border border-border flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-primary/50 disabled:opacity-30 transition-colors"
+                      aria-label={`${t.quiz.moveDown}: ${displayToken(item)}`}
+                      className="focus-ring grid h-11 w-11 place-items-center border border-white/15 text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground disabled:opacity-30"
                     >
                       <ArrowDown className="h-4 w-4" />
                     </button>
@@ -838,20 +944,20 @@ export default function Quiz() {
             <Button
               onClick={handleOrderingSubmit}
               disabled={submitAnswer.isPending}
-              className="w-full bg-primary text-primary-foreground mt-2"
+              className="mt-2 min-h-12 w-full rounded-none bg-primary text-primary-foreground"
               size="lg"
             >
-              Submit Order
+              {t.quiz.submitOrder}
             </Button>
           )}
           {answerResult && answerResult.correctAnswerData && (
-            <div className="rounded-xl border border-border bg-muted/20 p-4">
-              <p className="text-xs text-muted-foreground font-medium mb-2">Correct order:</p>
+            <div className="border-y border-white/10 py-4">
+              <p className="mb-2 text-xs font-medium text-muted-foreground">{t.quiz.correctOrder}</p>
               <ol className="space-y-1">
                 {(JSON.parse(answerResult.correctAnswerData) as string[]).map((item, i) => (
                   <li key={i} className="text-sm flex items-center gap-2">
                     <span className="text-muted-foreground w-4 text-xs">{i + 1}.</span>
-                    {item}
+                    {displayToken(item)}
                   </li>
                 ))}
               </ol>
@@ -866,7 +972,7 @@ export default function Quiz() {
           <div className="grid grid-cols-2 gap-4">
             {/* Left column */}
             <div className="space-y-2">
-              <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wide mb-3">Match From</p>
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t.quiz.matchFrom}</p>
               {leftItems.map((left: string) => {
                 const isMatched = !!playerMatches[left];
                 const isActive = selectedLeft === left;
@@ -885,12 +991,13 @@ export default function Quiz() {
                     key={left}
                     onClick={() => handleLeftClick(left)}
                     disabled={!!answerResult}
-                    className={cn("w-full text-left p-3 rounded-xl border-2 transition-all text-sm font-medium", cls)}
+                    aria-pressed={isActive}
+                    className={cn("focus-ring min-h-12 w-full border p-3 text-left text-sm font-medium transition-colors rtl:text-right", cls)}
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span>{left}</span>
+                      <span>{displayToken(left)}</span>
                       {isMatched && !answerResult && (
-                        <span className="text-xs text-secondary font-normal shrink-0">→ {playerMatches[left]}</span>
+                        <span className="shrink-0 text-xs font-normal text-primary">→ {displayToken(playerMatches[left])}</span>
                       )}
                     </div>
                   </button>
@@ -901,8 +1008,8 @@ export default function Quiz() {
             <div className="space-y-2">
               <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wide mb-3">
                 {selectedLeft ? (
-                  <span className="text-primary">Select match for "{selectedLeft}"</span>
-                ) : "Match To"}
+                  <span className="text-primary">{t.quiz.selectMatch} “{displayToken(selectedLeft)}”</span>
+                ) : t.quiz.matchTo}
               </p>
               {shuffledRight.map((right: string) => {
                 const isUsed = Object.values(playerMatches).includes(right);
@@ -924,9 +1031,10 @@ export default function Quiz() {
                     key={right}
                     onClick={() => handleRightClick(right)}
                     disabled={!!answerResult || (!selectedLeft && !isUsed)}
-                    className={cn("w-full text-left p-3 rounded-xl border-2 transition-all text-sm font-medium", cls)}
+                    aria-pressed={isUsed}
+                    className={cn("focus-ring min-h-12 w-full border p-3 text-left text-sm font-medium transition-colors rtl:text-right", cls)}
                   >
-                    {right}
+                    {displayToken(right)}
                   </button>
                 );
               })}
@@ -937,24 +1045,24 @@ export default function Quiz() {
             <Button
               onClick={handleMatchingSubmit}
               disabled={submitAnswer.isPending || Object.keys(playerMatches).length < leftItems.length}
-              className="w-full bg-primary text-primary-foreground"
+              className="min-h-12 w-full rounded-none bg-primary text-primary-foreground"
               size="lg"
             >
               {Object.keys(playerMatches).length < leftItems.length
-                ? `Match ${leftItems.length - Object.keys(playerMatches).length} more`
-                : "Submit Matches"}
+                ? `${t.quiz.matchMore} ${leftItems.length - Object.keys(playerMatches).length}`
+                : t.quiz.submitMatches}
             </Button>
           )}
 
           {answerResult && answerResult.correctAnswerData && (
-            <div className="rounded-xl border border-border bg-muted/20 p-4">
-              <p className="text-xs text-muted-foreground font-medium mb-2">Correct matches:</p>
+            <div className="border-y border-white/10 py-4">
+              <p className="mb-2 text-xs font-medium text-muted-foreground">{t.quiz.correctMatches}</p>
               <div className="space-y-1">
                 {Object.entries(JSON.parse(answerResult.correctAnswerData) as Record<string, string>).map(([l, r]) => (
                   <div key={l} className="text-sm flex items-center gap-2">
-                    <span className="font-medium">{l}</span>
+                    <span className="font-medium">{displayToken(l)}</span>
                     <span className="text-muted-foreground">→</span>
-                    <span>{r}</span>
+                    <span>{displayToken(r)}</span>
                   </div>
                 ))}
               </div>
@@ -964,16 +1072,20 @@ export default function Quiz() {
       )}
 
       {/* ── HOTSPOT ── */}
-      {qType === "hotspot" && (question as any).imageUrl && (
+      {qType === "hotspot" && question.imageUrl && (
         <div className="mb-8 space-y-4">
-          <div className="relative rounded-2xl overflow-hidden border-2 border-border group select-none">
+          <div className="group relative select-none overflow-hidden border border-white/15">
             <img
               ref={hotspotImgRef}
-              src={(question as any).imageUrl}
-              alt="Click the correct region"
+              src={question.imageUrl}
+              alt={t.quiz.hotspotImage}
               onClick={handleHotspotClick}
+              onKeyDown={handleHotspotKeyDown}
+              tabIndex={answerResult ? -1 : 0}
+              role="button"
+              aria-label={t.quiz.hotspotKeyboardHint}
               className={cn(
-                "w-full max-h-96 object-cover",
+                "focus-ring max-h-96 w-full object-cover",
                 !answerResult && !submitAnswer.isPending ? "cursor-crosshair" : "cursor-default"
               )}
               draggable={false}
@@ -1005,7 +1117,7 @@ export default function Quiz() {
             {/* Overlay instruction */}
             {!hotspotClick && !answerResult && (
               <div className="absolute inset-0 flex items-end p-4 bg-gradient-to-t from-black/50 to-transparent pointer-events-none">
-                <p className="text-white text-sm font-medium drop-shadow">Click anywhere on the image to select your answer</p>
+                <p className="text-sm font-medium text-white drop-shadow">{t.quiz.hotspotInstruction}</p>
               </div>
             )}
           </div>
@@ -1013,65 +1125,61 @@ export default function Quiz() {
       )}
 
       {/* No image for hotspot fallback */}
-      {qType === "hotspot" && !(question as any).imageUrl && (
-        <div className="mb-8 rounded-xl border-2 border-dashed border-border bg-muted/10 p-10 text-center text-muted-foreground">
+      {qType === "hotspot" && !question.imageUrl && (
+        <div className="mb-8 border border-dashed border-white/15 p-10 text-center text-muted-foreground">
           <Crosshair className="h-10 w-10 mx-auto mb-2 opacity-30" />
-          <p className="text-sm">No image available for this hotspot question.</p>
+          <p className="text-sm">{t.quiz.noHotspotImage}</p>
         </div>
       )}
 
       {/* Feedback Panel */}
       {answerResult && (
-        <div className="mt-auto animate-in fade-in slide-in-from-bottom-4">
+        <div role="status" aria-live="polite" className="sticky bottom-0 z-30 -mx-4 mt-auto border-t border-white/10 bg-background/95 px-4 py-3 backdrop-blur-md sm:-mx-8 sm:px-8 lg:-mx-12 lg:px-12">
           <div className={cn(
-            "p-6 rounded-xl border flex flex-col md:flex-row items-center justify-between gap-6",
-            answerResult.correct ? "bg-green-500/10 border-green-500/30" : "bg-destructive/10 border-destructive/30"
+            "mx-auto flex max-w-7xl flex-col items-stretch justify-between gap-4 border-l-2 py-2 pl-4 sm:flex-row sm:items-center rtl:border-l-0 rtl:border-r-2 rtl:pl-0 rtl:pr-4",
+            answerResult.correct ? "border-emerald-400" : "border-rose-400"
           )}>
-            <div className="flex items-center gap-4 text-center md:text-left">
+            <div className="flex items-center gap-4 text-left rtl:text-right">
               <div className={cn(
-                "h-12 w-12 rounded-full flex items-center justify-center shrink-0",
-                answerResult.correct ? "bg-green-500/20 text-green-500" : "bg-destructive/20 text-destructive"
+                "grid h-11 w-11 shrink-0 place-items-center border",
+                answerResult.correct ? "border-emerald-400/40 text-emerald-400" : "border-rose-400/40 text-rose-400"
               )}>
                 {answerResult.correct ? <CheckCircle2 className="h-6 w-6" /> : <XCircle className="h-6 w-6" />}
               </div>
               <div>
-                <h3 className={cn("font-bold text-xl", answerResult.correct ? "text-green-500" : "text-destructive")}>
-                  {answerResult.correct ? "Correct!" : "Incorrect!"}
-                </h3>
+                <h2 className={cn("text-xl font-extrabold tracking-[-0.03em]", answerResult.correct ? "text-emerald-400" : "text-rose-400")}>
+                  {answerResult.correct ? t.quiz.correct : t.quiz.incorrect}
+                </h2>
                 <div className="flex items-center gap-3 mt-1 flex-wrap">
                   {answerResult.pointsEarned > 0 && (
                     <span className="text-sm font-semibold text-primary flex items-center gap-1">
-                      <Trophy className="h-3.5 w-3.5" />+{answerResult.pointsEarned} pts
+                      <Trophy className="h-3.5 w-3.5" />+{answerResult.pointsEarned} {t.results.points}
                     </span>
                   )}
                   {answerResult.coinsEarned > 0 && (
                     <span className="text-sm font-semibold text-amber-400 flex items-center gap-1">
-                      <Gem className="h-3.5 w-3.5" />+{answerResult.coinsEarned} coins
+                      <Gem className="h-3.5 w-3.5" />+{answerResult.coinsEarned} {t.profile.coins}
                     </span>
                   )}
                 </div>
-                {answerResult.explanation && (
-                  <p className="text-sm mt-2 max-w-xl text-muted-foreground">{answerResult.explanation}</p>
+                {localizedExplanation && (
+                  <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">{localizedExplanation}</p>
                 )}
               </div>
             </div>
 
             {/* In level mode on last question, the overlay auto-appears — hide the button */}
             {!(isLevelMode && answerResult.isLastQuestion) && (
-              <Button
-                size="lg"
-                onClick={handleNext}
-                className={cn(
-                  "w-full md:w-auto h-12 px-8 text-lg shrink-0",
-                  answerResult.correct ? "bg-green-600 hover:bg-green-700 text-white" : "bg-primary hover:bg-primary/90 text-primary-foreground"
-                )}
-              >
-                {answerResult.isLastQuestion ? "View Results" : "Next Question"}
-              </Button>
+              <div className="flex items-center gap-3">
+                <div id="report-question-slot" data-feature-slot="report-question" />
+                <Button size="lg" onClick={handleNext} disabled={isAdvancing} className="focus-ring min-h-12 flex-1 shrink-0 rounded-none px-7 text-sm font-bold uppercase tracking-[0.12em] sm:flex-none">
+                  {isAdvancing ? <Loader2 className="mr-2 h-4 w-4 animate-spin rtl:ml-2 rtl:mr-0" /> : null}{answerResult.isLastQuestion ? t.quiz.viewResults : isAdvancing ? t.quiz.loading : t.quiz.nextQuestion}{!isAdvancing && <ArrowRight className="ml-2 h-4 w-4 rtl:ml-0 rtl:mr-2 rtl:rotate-180" />}
+                </Button>
+              </div>
             )}
           </div>
         </div>
       )}
-    </div>
+    </GameShell>
   );
 }

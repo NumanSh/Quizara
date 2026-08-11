@@ -9,6 +9,8 @@ import { useToast } from "@/hooks/use-toast";
 import PowerUpBar, { type PowerUpItem } from "@/components/PowerUpBar";
 import PreGamePowerUpModal from "@/components/PreGamePowerUpModal";
 import { authFetch } from "@/lib/api";
+import { useI18n } from "@/lib/i18n";
+import type { Translations } from "@/locales/en";
 
 const BLITZ_DURATION = 90;
 
@@ -43,16 +45,21 @@ interface AnswerFeedback {
   correctAnswer: number;
   coinsEarned: number;
   pointsEarned: number;
+  doubleScoreApplied?: boolean;
 }
 
-const DIFFICULTY_LABELS: Record<number, { label: string; color: string; multiplier: string }> = {
-  1: { label: "Easy", color: "text-green-400", multiplier: "×1" },
-  2: { label: "Medium", color: "text-yellow-400", multiplier: "×2" },
-  3: { label: "Hard", color: "text-red-400", multiplier: "×3" },
-};
+function difficultyLabels(t: Translations): Record<number, { label: string; color: string; multiplier: string }> {
+  return {
+    1: { label: t.blitz.easy, color: "text-green-400", multiplier: "×1" },
+    2: { label: t.blitz.medium, color: "text-yellow-400", multiplier: "×2" },
+    3: { label: t.blitz.hard, color: "text-red-400", multiplier: "×3" },
+  };
+}
 
 function DifficultyPip({ difficulty }: { difficulty: number }) {
-  const cfg = DIFFICULTY_LABELS[difficulty] ?? DIFFICULTY_LABELS[1];
+  const { t } = useI18n();
+  const labels = difficultyLabels(t);
+  const cfg = labels[difficulty] ?? labels[1];
   return (
     <span className={cn("text-xs font-bold px-2 py-0.5 rounded-full border border-white/10 bg-white/5", cfg.color)}>
       {cfg.label} {cfg.multiplier}
@@ -61,6 +68,7 @@ function DifficultyPip({ difficulty }: { difficulty: number }) {
 }
 
 export default function Blitz() {
+  const { t } = useI18n();
   const { isAuthenticated, user } = useSupabaseAuth();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
@@ -71,6 +79,7 @@ export default function Blitz() {
   const [hiddenOptions, setHiddenOptions] = useState<number[]>([]);
   const [usedEffects, setUsedEffects] = useState<Set<string>>(new Set());
   const [doubleScoreRemaining, setDoubleScoreRemaining] = useState(0);
+  const [doubleScoreItemId, setDoubleScoreItemId] = useState<string | null>(null);
   // ────────────────────────────────────────────────────────────────────────────
 
   const [state, setState] = useState<BlitzState>("idle");
@@ -161,7 +170,7 @@ export default function Blitz() {
         setAttemptId(data.attemptId);
       }
     } catch {
-      toast({ title: "Failed to load blitz", variant: "destructive" });
+      toast({ title: t.blitz.loadFailed, variant: "destructive" });
     }
   }
 
@@ -182,9 +191,19 @@ export default function Blitz() {
           setHiddenOptions(data.eliminatedOptions);
           setPowerUpInventory(prev => prev.map(p => p.itemId === itemId ? { ...p, quantity: p.quantity - 1 } : p).filter(p => p.quantity > 0));
           setUsedEffects(prev => new Set([...prev, effect]));
-          toast({ title: "✂️ 50/50 activated!", description: "2 wrong answers removed." });
+          toast({ title: t.blitz.fiftyActivated, description: t.blitz.fiftyActivatedDesc });
         }
       } catch {}
+      return;
+    }
+
+    if (effect === "double_score") {
+      // Not consumed here — the answer endpoint debits the item as it applies the
+      // multiplier, so the score shown always matches the score persisted.
+      setDoubleScoreItemId(itemId);
+      setDoubleScoreRemaining(1);
+      setUsedEffects(prev => new Set([...prev, effect]));
+      toast({ title: t.blitz.doubleArmed, description: t.blitz.doubleArmedDesc });
       return;
     }
 
@@ -202,7 +221,7 @@ export default function Blitz() {
     switch (effect) {
       case "extra_time":
         setTimeLeft(t => Math.min(t + 15, BLITZ_DURATION + 15));
-        toast({ title: "⏰ +15 seconds added!" });
+        toast({ title: t.blitz.timeAdded });
         break;
       case "skip_question": {
         setUsedEffects(prev => new Set([...prev, effect]));
@@ -216,13 +235,9 @@ export default function Blitz() {
         } else {
           setCurrentIdx(nextIdx);
         }
-        toast({ title: "⏭️ Question skipped!" });
+        toast({ title: t.blitz.skipped });
         return;
       }
-      case "double_score":
-        setDoubleScoreRemaining(3);
-        toast({ title: "✖️ Double Score for next 3 questions!" });
-        break;
     }
     setUsedEffects(prev => new Set([...prev, effect]));
   }
@@ -253,7 +268,7 @@ export default function Blitz() {
         if (res.status === 409) {
           await fetchToday();
           setState("idle");
-          toast({ title: err.error ?? "Already played today", variant: "destructive" });
+          toast({ title: err.error ?? t.blitz.alreadyPlayedError, variant: "destructive" });
           return;
         }
         throw new Error(err.error);
@@ -273,7 +288,7 @@ export default function Blitz() {
       startTimer(data.timeRemaining ?? BLITZ_DURATION, data.attemptId);
     } catch (err: any) {
       setState("idle");
-      toast({ title: err.message ?? "Failed to start blitz", variant: "destructive" });
+      toast({ title: err.message ?? t.blitz.startFailed, variant: "destructive" });
     }
   }
 
@@ -286,11 +301,16 @@ export default function Blitz() {
     setIsSubmitting(true);
 
     try {
+      const useDouble = doubleScoreRemaining > 0 && doubleScoreItemId !== null;
       const res = await authFetch(`/api/blitz/${attemptId}/answer`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ questionId: q.id, selectedAnswer: optionIndex }),
+        body: JSON.stringify({
+          questionId: q.id,
+          selectedAnswer: optionIndex,
+          ...(useDouble ? { doubleScore: true, doubleScoreItemId } : {}),
+        }),
       });
 
       if (res.status === 409) {
@@ -298,16 +318,34 @@ export default function Blitz() {
         return;
       }
 
+      if (!res.ok) {
+        // The answer was not recorded (e.g. the power-up was rejected). Let the
+        // player retry rather than showing an empty feedback card.
+        const body = await res.json().catch(() => ({}));
+        toast({ title: t.blitz.answerNotRecorded, description: body.error ?? t.blitz.pleaseTryAgain, variant: "destructive" });
+        setSelectedOption(null);
+        setIsSubmitting(false);
+        return;
+      }
+
       const data: AnswerFeedback = await res.json();
       setFeedback(data);
       setAnsweredCount((p) => p + 1);
+
+      if (data.doubleScoreApplied) {
+        setDoubleScoreRemaining(0);
+        setDoubleScoreItemId(null);
+        setPowerUpInventory(prev =>
+          prev.map(p => p.itemId === doubleScoreItemId ? { ...p, quantity: p.quantity - 1 } : p).filter(p => p.quantity > 0)
+        );
+      }
+
       if (data.isCorrect) {
         setCorrectCount((p) => p + 1);
-        const multiplier = doubleScoreRemaining > 0 ? 2 : 1;
-        if (doubleScoreRemaining > 0) setDoubleScoreRemaining(d => d - 1);
-        setScore((p) => p + data.pointsEarned * multiplier);
+        // pointsEarned already includes the double-score multiplier
+        setScore((p) => p + data.pointsEarned);
         setTotalCoins((p) => p + data.coinsEarned);
-        setTotalPoints((p) => p + data.pointsEarned * multiplier);
+        setTotalPoints((p) => p + data.pointsEarned);
       }
 
       setTimeout(() => {
@@ -340,11 +378,11 @@ export default function Blitz() {
           <Zap className="h-10 w-10 text-orange-400" />
         </div>
         <div>
-          <h1 className="text-3xl font-black text-foreground mb-2">Daily Blitz</h1>
-          <p className="text-muted-foreground">Sign in to play the daily 90-second speed challenge</p>
+          <h1 className="text-3xl font-black text-foreground mb-2">{t.blitz.title}</h1>
+          <p className="text-muted-foreground">{t.blitz.signInHint}</p>
         </div>
         <Button onClick={() => setLocation("/login")} className="bg-orange-500 hover:bg-orange-600 text-white font-bold px-8">
-          Sign In to Play
+          {t.blitz.signInBtn}
         </Button>
       </div>
     );
@@ -393,7 +431,7 @@ export default function Blitz() {
 
         <div className="flex items-center justify-between text-xs text-muted-foreground">
           <span>{currentIdx + 1} / {questions.length}</span>
-          <span className="text-green-400 font-bold">{correctCount} correct</span>
+          <span className="text-green-400 font-bold">{correctCount} {t.blitz.correctSuffix}</span>
           <DifficultyPip difficulty={q.difficulty} />
         </div>
 
@@ -406,7 +444,7 @@ export default function Blitz() {
           <div>
             {doubleScoreRemaining > 0 && (
               <div className="flex justify-center mb-2">
-                <span className="px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/30 text-xs font-semibold">✖️ 2× Score ({doubleScoreRemaining} left)</span>
+                <span className="px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/30 text-xs font-semibold">{t.blitz.doubleScoreArmedBadge}</span>
               </div>
             )}
             <PowerUpBar
@@ -497,33 +535,33 @@ export default function Blitz() {
         </div>
 
         <div>
-          <h1 className="text-3xl font-black text-foreground">Blitz Complete!</h1>
-          <p className="text-muted-foreground mt-1">Today's challenge finished</p>
+          <h1 className="text-3xl font-black text-foreground">{t.blitz.completed}</h1>
+          <p className="text-muted-foreground mt-1">{t.blitz.todayFinishedDesc}</p>
         </div>
 
         <div className="w-full grid grid-cols-2 gap-3">
           <div className="rounded-2xl border border-white/10 bg-card/60 p-5">
             <p className="text-3xl font-black text-secondary">{score}</p>
-            <p className="text-xs text-muted-foreground mt-1">Total Score</p>
+            <p className="text-xs text-muted-foreground mt-1">{t.blitz.totalScore}</p>
           </div>
           <div className="rounded-2xl border border-white/10 bg-card/60 p-5">
             <p className="text-3xl font-black text-amber-400">{totalCoins}</p>
-            <p className="text-xs text-muted-foreground mt-1 flex items-center justify-center gap-1"><Gem className="h-3 w-3" />Coins Earned</p>
+            <p className="text-xs text-muted-foreground mt-1 flex items-center justify-center gap-1"><Gem className="h-3 w-3" />{t.blitz.coinsEarnedLabel}</p>
           </div>
           <div className="rounded-2xl border border-white/10 bg-card/60 p-5">
             <p className="text-3xl font-black text-green-400">{correctCount}/{answeredCount}</p>
-            <p className="text-xs text-muted-foreground mt-1">Correct Answers</p>
+            <p className="text-xs text-muted-foreground mt-1">{t.blitz.correctAnswersLabel}</p>
           </div>
           <div className="rounded-2xl border border-white/10 bg-card/60 p-5">
             <p className="text-3xl font-black text-violet-400">{accuracy}%</p>
-            <p className="text-xs text-muted-foreground mt-1">Accuracy</p>
+            <p className="text-xs text-muted-foreground mt-1">{t.blitz.accuracy}</p>
           </div>
         </div>
 
         <div className="rounded-2xl border border-orange-500/20 bg-orange-500/5 p-4 w-full">
           <div className="flex items-center gap-2 text-orange-400 text-sm font-bold">
             <Calendar className="h-4 w-4" />
-            Come back tomorrow for a new Blitz!
+            {t.blitz.comeBackForBlitz}
           </div>
         </div>
 
@@ -534,13 +572,13 @@ export default function Blitz() {
             onClick={() => setLocation("/leaderboard")}
           >
             <Trophy className="h-4 w-4 mr-2" />
-            Leaderboard
+            {t.blitz.viewLeaderboard}
           </Button>
           <Button
             className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-bold"
             onClick={() => setLocation("/")}
           >
-            Home
+            {t.arena.home}
           </Button>
         </div>
       </div>
@@ -559,21 +597,21 @@ export default function Blitz() {
           </div>
           <div className="absolute -top-2 -right-2">
             <span className="text-[10px] font-black px-2 py-1 rounded-full bg-red-500 text-white uppercase tracking-wide animate-pulse">
-              DAILY
+              {t.blitz.dailyBadge}
             </span>
           </div>
         </div>
         <div>
-          <h1 className="text-4xl font-black text-foreground">Daily Blitz</h1>
-          <p className="text-muted-foreground mt-1">90 seconds. Answer as many as you can. Pure speed.</p>
+          <h1 className="text-4xl font-black text-foreground">{t.blitz.title}</h1>
+          <p className="text-muted-foreground mt-1">{t.blitz.subtitle90}</p>
         </div>
       </div>
 
       <div className="grid grid-cols-3 gap-3">
         {[
-          { icon: Clock, label: "90 Seconds", color: "text-orange-400", bg: "bg-orange-500/10 border-orange-500/20" },
-          { icon: Flame, label: "Speed Mode", color: "text-red-400", bg: "bg-red-500/10 border-red-500/20" },
-          { icon: Gem, label: "Earn Coins", color: "text-amber-400", bg: "bg-amber-500/10 border-amber-500/20" },
+          { icon: Clock, label: t.blitz.ninetySeconds, color: "text-orange-400", bg: "bg-orange-500/10 border-orange-500/20" },
+          { icon: Flame, label: t.blitz.speedMode, color: "text-red-400", bg: "bg-red-500/10 border-red-500/20" },
+          { icon: Gem, label: t.blitz.earnCoins, color: "text-amber-400", bg: "bg-amber-500/10 border-amber-500/20" },
         ].map(({ icon: Icon, label, color, bg }) => (
           <div key={label} className={cn("rounded-xl border p-3 flex flex-col items-center gap-2", bg)}>
             <Icon className={cn("h-5 w-5", color)} />
@@ -585,15 +623,15 @@ export default function Blitz() {
       <div className="rounded-2xl border border-white/10 bg-card/60 p-5 space-y-3">
         <h3 className="font-bold text-foreground flex items-center gap-2">
           <Star className="h-4 w-4 text-yellow-400" />
-          How it works
+          {t.blitz.howItWorks}
         </h3>
         <ul className="space-y-2 text-sm text-muted-foreground">
           {[
-            "All players answer the same questions today",
-            "Answer instantly — no waiting between questions",
-            "Each correct answer earns coins based on difficulty",
-            "Score = correct answers × difficulty multiplier",
-            "A fresh set of questions every day",
+            t.blitz.tip1,
+            t.blitz.tip2,
+            t.blitz.tip3,
+            t.blitz.tip4,
+            t.blitz.tip5,
           ].map((tip) => (
             <li key={tip} className="flex items-start gap-2">
               <CheckCircle2 className="h-3.5 w-3.5 text-green-400 mt-0.5 shrink-0" />
@@ -604,11 +642,11 @@ export default function Blitz() {
       </div>
 
       <div className="rounded-2xl border border-white/10 bg-card/60 p-4">
-        <div className="text-xs text-muted-foreground mb-1">Coin rewards per correct answer</div>
+        <div className="text-xs text-muted-foreground mb-1">{t.blitz.coinRewardsHeading}</div>
         <div className="flex gap-3">
-          <span className="flex items-center gap-1 text-green-400 font-bold text-sm"><Gem className="h-3 w-3" />Easy: 5</span>
-          <span className="flex items-center gap-1 text-yellow-400 font-bold text-sm"><Gem className="h-3 w-3" />Medium: 10</span>
-          <span className="flex items-center gap-1 text-red-400 font-bold text-sm"><Gem className="h-3 w-3" />Hard: 15</span>
+          <span className="flex items-center gap-1 text-green-400 font-bold text-sm"><Gem className="h-3 w-3" />{t.blitz.easyReward}</span>
+          <span className="flex items-center gap-1 text-yellow-400 font-bold text-sm"><Gem className="h-3 w-3" />{t.blitz.mediumReward}</span>
+          <span className="flex items-center gap-1 text-red-400 font-bold text-sm"><Gem className="h-3 w-3" />{t.blitz.hardReward}</span>
         </div>
       </div>
 
@@ -616,23 +654,23 @@ export default function Blitz() {
         <div className="rounded-2xl border border-green-500/20 bg-green-500/5 p-5 space-y-3">
           <div className="flex items-center gap-2 text-green-400 font-bold">
             <CheckCircle2 className="h-5 w-5" />
-            You've played today!
+            {t.blitz.playedToday}
           </div>
           <div className="grid grid-cols-3 gap-3 text-center">
             <div>
               <p className="text-2xl font-black text-secondary">{todayInfo.previousScore ?? 0}</p>
-              <p className="text-xs text-muted-foreground">Score</p>
+              <p className="text-xs text-muted-foreground">{t.topbar.score}</p>
             </div>
             <div>
               <p className="text-2xl font-black text-green-400">{todayInfo.previousCorrect ?? 0}</p>
-              <p className="text-xs text-muted-foreground">Correct</p>
+              <p className="text-xs text-muted-foreground">{t.blitz.correctLabel}</p>
             </div>
             <div>
               <p className="text-2xl font-black text-amber-400">{todayInfo.coinsEarned ?? 0}</p>
-              <p className="text-xs text-muted-foreground flex items-center justify-center gap-1"><Gem className="h-3 w-3" />Coins</p>
+              <p className="text-xs text-muted-foreground flex items-center justify-center gap-1"><Gem className="h-3 w-3" />{t.blitz.coins}</p>
             </div>
           </div>
-          <p className="text-xs text-muted-foreground text-center">Come back tomorrow for a new challenge!</p>
+          <p className="text-xs text-muted-foreground text-center">{t.blitz.comeBackTomorrow}</p>
         </div>
       )}
 
@@ -646,17 +684,17 @@ export default function Blitz() {
           {state === "loading" ? (
             <span className="flex items-center gap-2">
               <div className="h-5 w-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              Starting...
+              {t.blitz.starting}
             </span>
           ) : hasInProgress ? (
             <span className="flex items-center gap-2">
               <RotateCcw className="h-5 w-5" />
-              Resume Blitz
+              {t.blitz.resumeBlitz}
             </span>
           ) : (
             <span className="flex items-center gap-2">
               <Zap className="h-5 w-5" />
-              Start Blitz — {todayInfo?.questionCount ?? 30} Questions
+              {t.blitz.startBlitz.replace("{count}", String(todayInfo?.questionCount ?? 30))}
             </span>
           )}
         </Button>

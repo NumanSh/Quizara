@@ -8,6 +8,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { getGetProfileQueryKey } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
 import { authFetch } from "@/lib/api";
+import { useI18n } from "@/lib/i18n";
 
 const XP_PER_TIER = 200;
 const PREMIUM_COST = 1500;
@@ -67,6 +68,7 @@ function TierCard({
   onClaim: (tierNum: number, type: "free" | "premium") => void;
   claiming: string | null;
 }) {
+  const { t } = useI18n();
   const unlocked = tier.tier <= currentTier;
   const isCurrent = tier.tier === currentTier + 1;
   const progressToNext = isCurrent ? Math.round(((xp - currentTier * XP_PER_TIER) / XP_PER_TIER) * 100) : 0;
@@ -90,7 +92,7 @@ function TierCard({
       {isMilestone && (
         <div className="absolute top-0 right-0">
           <div className="bg-amber-500 text-black text-[9px] font-black px-1.5 py-0.5 rounded-bl-lg rounded-tr-2xl">
-            ★ BONUS
+            {t.battlePassPage.bonus}
           </div>
         </div>
       )}
@@ -114,7 +116,7 @@ function TierCard({
             </div>
           )}
           <span className={cn("text-[10px] font-bold uppercase tracking-wide", isCurrent ? "text-indigo-300" : unlocked ? "text-white/60" : "text-white/25")}>
-            Tier {tier.tier}
+            {t.battlePassPage.tier.replace("{n}", String(tier.tier))}
           </span>
         </div>
         {isCurrent && (
@@ -135,7 +137,7 @@ function TierCard({
           "bg-white/[0.04] border border-white/[0.07]"
         )}>
           <div className="flex items-center gap-2">
-            <span className="text-[10px] font-bold text-white/30 uppercase tracking-widest min-w-[28px]">FREE</span>
+            <span className="text-[10px] font-bold text-white/30 uppercase tracking-widest min-w-[28px]">{t.battlePassPage.free}</span>
             <RewardDisplay reward={tier.free} dim={!unlocked} />
           </div>
           {unlocked && !claimedFree ? (
@@ -145,7 +147,7 @@ function TierCard({
               disabled={claiming === `${tier.tier}-free`}
               onClick={() => onClaim(tier.tier, "free")}
             >
-              {claiming === `${tier.tier}-free` ? "…" : "Claim"}
+              {claiming === `${tier.tier}-free` ? "…" : t.battlePassPage.claim}
             </Button>
           ) : claimedFree ? (
             <Check className="h-4 w-4 text-green-400 shrink-0" />
@@ -162,7 +164,7 @@ function TierCard({
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-0.5 min-w-[28px]">
               <Crown className={cn("h-2.5 w-2.5", isPremium ? "text-amber-400" : "text-white/20")} />
-              <span className={cn("text-[9px] font-black uppercase tracking-widest", isPremium ? "text-amber-400" : "text-white/20")}>PRO</span>
+              <span className={cn("text-[9px] font-black uppercase tracking-widest", isPremium ? "text-amber-400" : "text-white/20")}>{t.battlePassPage.pro}</span>
             </div>
             <RewardDisplay reward={tier.premium} dim={!isPremium || !unlocked} />
           </div>
@@ -174,7 +176,7 @@ function TierCard({
               disabled={claiming === `${tier.tier}-premium`}
               onClick={() => onClaim(tier.tier, "premium")}
             >
-              {claiming === `${tier.tier}-premium` ? "…" : "Claim"}
+              {claiming === `${tier.tier}-premium` ? "…" : t.battlePassPage.claim}
             </Button>
           ) : isPremium && claimedPremium ? (
             <Check className="h-4 w-4 text-amber-400 shrink-0" />
@@ -188,6 +190,7 @@ function TierCard({
 }
 
 export default function BattlePass() {
+  const { t } = useI18n();
   const { isAuthenticated, login } = useSupabaseAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -216,8 +219,7 @@ export default function BattlePass() {
   const handleAdComplete = async () => {
     const res = await authFetch("/api/battlepass/watch-ad-xp", { method: "POST", credentials: "include" });
     if (res.ok) {
-      const d = await res.json();
-      toast({ title: `+${AD_XP} XP!`, description: "Battle Pass XP added — keep it up!" });
+      toast({ title: t.battlePassPage.xpAddedToast.replace("{xp}", String(AD_XP)), description: t.battlePassPage.xpAddedDesc });
       await fetchData();
       queryClient.invalidateQueries({ queryKey: getGetProfileQueryKey() });
     }
@@ -236,11 +238,11 @@ export default function BattlePass() {
       });
       const d = await res.json();
       if (res.ok) {
-        toast({ title: "Reward Claimed!", description: `${d.reward.emoji} ${d.reward.label} added to your account.` });
+        toast({ title: t.battlePassPage.rewardClaimed, description: t.battlePassPage.rewardClaimedDesc.replace("{emoji}", d.reward.emoji).replace("{label}", d.reward.label) });
         await fetchData();
         queryClient.invalidateQueries({ queryKey: getGetProfileQueryKey() });
       } else {
-        toast({ title: "Oops", description: d.error ?? "Could not claim reward", variant: "destructive" });
+        toast({ title: t.battlePassPage.oops, description: d.error ?? t.battlePassPage.claimFailed, variant: "destructive" });
       }
     } finally {
       setClaiming(null);
@@ -254,11 +256,11 @@ export default function BattlePass() {
       const res = await authFetch("/api/battlepass/premium", { method: "POST", credentials: "include" });
       const d = await res.json();
       if (res.ok) {
-        toast({ title: "🎉 Premium Unlocked!", description: `Welcome to Battle Pass Premium! ${d.coinsSpent} coins spent.` });
+        toast({ title: t.battlePassPage.premiumUnlocked, description: t.battlePassPage.premiumUnlockedDesc.replace("{coins}", String(d.coinsSpent)) });
         await fetchData();
         queryClient.invalidateQueries({ queryKey: getGetProfileQueryKey() });
       } else {
-        toast({ title: "Not enough coins", description: `You need ${PREMIUM_COST} coins to unlock Premium.`, variant: "destructive" });
+        toast({ title: t.battlePassPage.notEnoughCoins, description: t.battlePassPage.needCoinsForPremium.replace("{amount}", String(PREMIUM_COST)), variant: "destructive" });
       }
     } finally {
       setUpgrading(false);
@@ -269,9 +271,9 @@ export default function BattlePass() {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-6 p-8 text-center">
         <div className="text-6xl">⚔️</div>
-        <h2 className="text-2xl font-black text-white">Battle Pass</h2>
-        <p className="text-muted-foreground max-w-xs">Sign in to track your season progress and claim exclusive rewards as you play.</p>
-        <Button className="bg-primary text-white font-bold px-8" onClick={login}>Sign In to Play</Button>
+        <h2 className="text-2xl font-black text-white">{t.battlePassPage.title}</h2>
+        <p className="text-muted-foreground max-w-xs">{t.battlePassPage.signInDesc}</p>
+        <Button className="bg-primary text-white font-bold px-8" onClick={login}>{t.battlePassPage.signInBtn}</Button>
       </div>
     );
   }
@@ -281,7 +283,7 @@ export default function BattlePass() {
       <div className="flex-1 flex items-center justify-center">
         <div className="flex flex-col items-center gap-3 text-muted-foreground">
           <div className="h-8 w-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-          <span className="text-sm">Loading Battle Pass…</span>
+          <span className="text-sm">{t.battlePassPage.loading}</span>
         </div>
       </div>
     );
@@ -310,14 +312,14 @@ export default function BattlePass() {
                 <span className="text-lg">⚔️</span>
               </div>
               <div>
-                <h1 className="text-xl font-black text-white leading-none">Battle Pass</h1>
-                <p className="text-xs text-muted-foreground mt-0.5">{data.seasonName} · 30 Tiers</p>
+                <h1 className="text-xl font-black text-white leading-none">{t.battlePassPage.title}</h1>
+                <p className="text-xs text-muted-foreground mt-0.5">{t.battlePassPage.seasonTiers.replace("{season}", data.seasonName)}</p>
               </div>
             </div>
             <div className="flex items-center gap-2">
               {claimableCount > 0 && (
                 <div className="px-2 py-1 rounded-full bg-green-500/15 border border-green-500/30 text-green-400 text-xs font-bold">
-                  {claimableCount} to claim!
+                  {t.battlePassPage.toClaim.replace("{count}", String(claimableCount))}
                 </div>
               )}
               <div className="px-3 py-1.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center gap-1.5">
@@ -355,8 +357,8 @@ export default function BattlePass() {
                 <Zap className="h-3.5 w-3.5 text-indigo-400" />
               </div>
               <div className="min-w-0">
-                <p className="text-xs font-bold text-indigo-300 leading-none">Watch Ad → +{AD_XP} XP</p>
-                <p className="text-[10px] text-white/35 mt-0.5">∞ Unlimited · Boost your tier progress</p>
+                <p className="text-xs font-bold text-indigo-300 leading-none">{t.battlePassPage.watchAdXp.replace("{xp}", String(AD_XP))}</p>
+                <p className="text-[10px] text-white/35 mt-0.5">{t.battlePassPage.watchAdXpDesc}</p>
               </div>
               <ChevronRight className="h-3.5 w-3.5 text-indigo-400/50 shrink-0" />
             </button>
@@ -370,7 +372,7 @@ export default function BattlePass() {
               >
                 <Crown className="h-3.5 w-3.5 text-amber-400" />
                 <div className="text-left">
-                  <p className="text-[10px] font-black text-amber-300 leading-none">PREMIUM</p>
+                  <p className="text-[10px] font-black text-amber-300 leading-none">{t.battlePassPage.premium}</p>
                   <div className="flex items-center gap-0.5 mt-0.5">
                     <Gem className="h-2.5 w-2.5 text-amber-400" />
                     <span className="text-[9px] text-amber-400/70 font-bold">{PREMIUM_COST.toLocaleString()}</span>
@@ -380,7 +382,7 @@ export default function BattlePass() {
             ) : (
               <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-amber-400/30 bg-amber-500/8 shrink-0">
                 <Crown className="h-3.5 w-3.5 text-amber-400" />
-                <span className="text-[10px] font-black text-amber-300">PREMIUM</span>
+                <span className="text-[10px] font-black text-amber-300">{t.battlePassPage.premium}</span>
                 <Star className="h-3 w-3 text-amber-400 fill-amber-400" />
               </div>
             )}
@@ -392,10 +394,10 @@ export default function BattlePass() {
       <div className="max-w-5xl mx-auto px-4 py-4">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-6">
           {[
-            { emoji: "✅", label: "Correct Answer", xp: "+10 XP" },
-            { emoji: "🏁", label: "Quiz Complete", xp: "+25 XP" },
-            { emoji: "🔥", label: "Daily Streak", xp: "+20 XP" },
-            { emoji: "📺", label: "Watch Ad", xp: "+50 XP" },
+            { emoji: "✅", label: t.battlePassPage.correctAnswer, xp: "+10 XP" },
+            { emoji: "🏁", label: t.battlePassPage.quizComplete, xp: "+25 XP" },
+            { emoji: "🔥", label: t.battlePassPage.dailyStreak, xp: "+20 XP" },
+            { emoji: "📺", label: t.battlePassPage.watchAd, xp: "+50 XP" },
           ].map(item => (
             <div key={item.label} className="rounded-xl border border-white/[0.06] bg-white/[0.03] p-3 flex flex-col gap-1">
               <span className="text-lg">{item.emoji}</span>
@@ -425,8 +427,8 @@ export default function BattlePass() {
         {currentTier >= 30 && (
           <div className="mt-8 text-center py-8 rounded-2xl border border-amber-400/30 bg-amber-500/5">
             <div className="text-4xl mb-2">🏆</div>
-            <h3 className="text-xl font-black text-amber-300">Season Complete!</h3>
-            <p className="text-white/50 text-sm mt-1">You've conquered all 30 tiers. Legendary!</p>
+            <h3 className="text-xl font-black text-amber-300">{t.battlePassPage.seasonComplete}</h3>
+            <p className="text-white/50 text-sm mt-1">{t.battlePassPage.seasonCompleteDesc}</p>
           </div>
         )}
       </div>

@@ -10,6 +10,7 @@ import { Globe, User, Check, ChevronRight, Trophy, Gem, Zap } from "lucide-react
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n";
 
 const COUNTRIES = [
   { code: "DZ", name: "Algeria", flag: "🇩🇿" },
@@ -73,6 +74,7 @@ const STEPS = ["welcome", "username", "country", "done"] as const;
 type Step = (typeof STEPS)[number];
 
 export function ProfileSetupModal() {
+  const { t } = useI18n();
   const { isAuthenticated, user } = useSupabaseAuth();
   const queryClient = useQueryClient();
   const [step, setStep] = useState<Step>("welcome");
@@ -109,9 +111,9 @@ export function ProfileSetupModal() {
   );
 
   const validateUsername = (val: string) => {
-    if (val.length < 3) return "Must be at least 3 characters";
-    if (val.length > 20) return "Must be 20 characters or less";
-    if (!/^[a-zA-Z0-9_]+$/.test(val)) return "Only letters, numbers, and underscores";
+    if (val.length < 3) return t.profileSetup.usernameTooShort;
+    if (val.length > 20) return t.profileSetup.usernameTooLong;
+    if (!/^[a-zA-Z0-9_]+$/.test(val)) return t.profileSetup.usernameInvalidChars;
     return "";
   };
 
@@ -176,23 +178,22 @@ export function ProfileSetupModal() {
 
               <div>
                 <h2 className="text-2xl font-black text-foreground mb-1">
-                  Welcome to Quizara!
+                  {t.profileSetup.welcomeTitle}
                 </h2>
                 <p className="text-muted-foreground text-sm">
-                  Hey, {user?.user_metadata?.full_name || user?.user_metadata?.name || "Player"}! Let's get you set up.
+                  {t.profileSetup.hey.replace("{name}", user?.user_metadata?.full_name || user?.user_metadata?.name || "Player")}
                 </p>
               </div>
 
               <p className="text-sm text-muted-foreground leading-relaxed">
-                Let's set up your profile in 2 quick steps so you can compete
-                on the leaderboard and show your country flag.
+                {t.profileSetup.intro}
               </p>
 
               <div className="grid grid-cols-3 gap-3 w-full text-center text-xs">
                 {[
-                  { icon: Trophy, label: "Leaderboard", color: "text-primary" },
-                  { icon: Gem, label: "Earn Coins", color: "text-amber-400" },
-                  { icon: Zap, label: "Daily Quizzes", color: "text-yellow-400" },
+                  { icon: Trophy, label: t.profileSetup.leaderboard, color: "text-primary" },
+                  { icon: Gem, label: t.profileSetup.earnCoins, color: "text-amber-400" },
+                  { icon: Zap, label: t.profileSetup.dailyQuizzes, color: "text-yellow-400" },
                 ].map(({ icon: Icon, label, color }) => (
                   <div key={label} className="rounded-xl bg-white/5 border border-white/5 p-3 flex flex-col items-center gap-1.5">
                     <Icon className={cn("h-5 w-5", color)} />
@@ -205,14 +206,14 @@ export function ProfileSetupModal() {
                 className="w-full h-12 text-base font-bold bg-gradient-to-r from-secondary to-primary text-white hover:opacity-90 transition-opacity"
                 onClick={() => setStep("username")}
               >
-                Get Started <ChevronRight className="ml-1 h-4 w-4" />
+                {t.profileSetup.getStarted} <ChevronRight className="ml-1 h-4 w-4" />
               </Button>
 
               <button
                 onClick={() => setDismissed(true)}
                 className="text-xs text-muted-foreground hover:text-foreground transition-colors"
               >
-                Skip for now
+                {t.profileSetup.skipForNow}
               </button>
             </div>
           )}
@@ -224,8 +225,8 @@ export function ProfileSetupModal() {
                 <div className="w-14 h-14 mx-auto rounded-2xl bg-secondary/10 border border-secondary/20 flex items-center justify-center mb-4">
                   <User className="h-7 w-7 text-secondary" />
                 </div>
-                <h2 className="text-xl font-black">Choose your username</h2>
-                <p className="text-sm text-muted-foreground mt-1">This is how others will see you</p>
+                <h2 className="text-xl font-black">{t.profileSetup.chooseUsername}</h2>
+                <p className="text-sm text-muted-foreground mt-1">{t.profileSetup.usernameHint}</p>
               </div>
 
               <div className="space-y-2">
@@ -241,7 +242,7 @@ export function ProfileSetupModal() {
                       setUsernameError("");
                     }}
                     onKeyDown={(e) => e.key === "Enter" && handleUsernameNext()}
-                    placeholder="your_username"
+                    placeholder={t.profileSetup.usernamePlaceholder}
                     maxLength={20}
                     autoFocus
                     className={cn(
@@ -259,20 +260,20 @@ export function ProfileSetupModal() {
                   <p className="text-xs text-destructive">{usernameError}</p>
                 )}
                 <p className="text-xs text-muted-foreground">
-                  Letters, numbers and underscores only. This is how you'll appear on the leaderboard.
+                  {t.profileSetup.usernameRules}
                 </p>
               </div>
 
               <div className="flex gap-3">
                 <Button variant="outline" onClick={() => setStep("welcome")} className="flex-1 border-white/10 hover:bg-white/5">
-                  Back
+                  {t.profileSetup.back}
                 </Button>
                 <Button
                   onClick={handleUsernameNext}
                   disabled={username.length < 3}
                   className="flex-1 bg-secondary hover:bg-secondary/90 text-white font-bold"
                 >
-                  Next <ChevronRight className="ml-1 h-4 w-4" />
+                  {t.profileSetup.next} <ChevronRight className="ml-1 h-4 w-4" />
                 </Button>
               </div>
             </div>
@@ -285,13 +286,13 @@ export function ProfileSetupModal() {
                 <div className="w-14 h-14 mx-auto rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center mb-4">
                   <Globe className="h-7 w-7 text-primary" />
                 </div>
-                <h2 className="text-xl font-black">Where are you from?</h2>
-                <p className="text-sm text-muted-foreground mt-1">Your flag will show on the leaderboard</p>
+                <h2 className="text-xl font-black">{t.profileSetup.whereFrom}</h2>
+                <p className="text-sm text-muted-foreground mt-1">{t.profileSetup.flagHint}</p>
               </div>
 
               {/* Search */}
               <Input
-                placeholder="Search country..."
+                placeholder={t.profileSetup.searchCountry}
                 value={countrySearch}
                 onChange={(e) => setCountrySearch(e.target.value)}
                 className="bg-white/5 border-white/10 focus-visible:ring-primary/30"
@@ -301,7 +302,7 @@ export function ProfileSetupModal() {
               {/* Country list */}
               <div className="max-h-52 overflow-y-auto space-y-1 pr-1 scrollbar-thin">
                 {filteredCountries.length === 0 ? (
-                  <p className="text-center text-sm text-muted-foreground py-4">No country found</p>
+                  <p className="text-center text-sm text-muted-foreground py-4">{t.profileSetup.noCountryFound}</p>
                 ) : (
                   filteredCountries.map((c) => (
                     <button
@@ -326,14 +327,14 @@ export function ProfileSetupModal() {
 
               <div className="flex gap-3">
                 <Button variant="outline" onClick={() => setStep("username")} className="flex-1 border-white/10 hover:bg-white/5">
-                  Back
+                  {t.profileSetup.back}
                 </Button>
                 <Button
                   onClick={handleFinish}
                   disabled={saving}
                   className="flex-1 bg-gradient-to-r from-secondary to-primary text-white font-bold hover:opacity-90 transition-opacity"
                 >
-                  {saving ? "Saving..." : selectedCountry ? "Finish!" : "Skip country"}
+                  {saving ? t.profileSetup.saving : selectedCountry ? t.profileSetup.finish : t.profileSetup.skipCountry}
                 </Button>
               </div>
             </div>
@@ -346,14 +347,14 @@ export function ProfileSetupModal() {
                 <Check className="h-10 w-10 text-green-400" />
               </div>
               <div>
-                <h2 className="text-2xl font-black text-green-400">You're all set!</h2>
+                <h2 className="text-2xl font-black text-green-400">{t.profileSetup.allSet}</h2>
                 <p className="text-sm text-muted-foreground mt-1">
                   {selectedCountry && `${COUNTRIES.find(c => c.name === selectedCountry)?.flag} `}
-                  Welcome, @{username}!
+                  {t.profileSetup.welcomeUser.replace("{username}", username)}
                 </p>
               </div>
               <p className="text-sm text-muted-foreground">
-                Start a quiz to earn coins and climb the leaderboard.
+                {t.profileSetup.startQuiz}
               </p>
             </div>
           )}

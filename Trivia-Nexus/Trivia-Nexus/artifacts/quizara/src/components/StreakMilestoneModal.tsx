@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Gem } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useI18n } from "@/lib/i18n";
 
 interface StreakMilestoneModalProps {
   streak: number;
@@ -93,21 +94,21 @@ function ConfettiCanvas() {
   );
 }
 
-const MILESTONE_LABELS: Record<number, string> = {
-  7: "One Week Strong!",
-  30: "One Month Legend!",
-  100: "Century Streak!",
-};
-
 export function StreakMilestoneModal({ streak, coinsAwarded, onClose }: StreakMilestoneModalProps) {
+  const { t } = useI18n();
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    const t = setTimeout(() => setVisible(true), 50);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setVisible(true), 50);
+    return () => clearTimeout(timer);
   }, []);
 
-  const label = MILESTONE_LABELS[streak] ?? `Day ${streak} Milestone!`;
+  const milestoneLabels: Record<number, string> = {
+    7: t.streakMilestone.day7,
+    30: t.streakMilestone.day30,
+    100: t.streakMilestone.day100,
+  };
+  const label = milestoneLabels[streak] ?? t.streakMilestone.dayMilestone.replace("{day}", String(streak));
 
   const content = (
     <>
@@ -145,13 +146,13 @@ export function StreakMilestoneModal({ streak, coinsAwarded, onClose }: StreakMi
               className="px-4 py-1.5 rounded-full text-sm font-black uppercase tracking-wider"
               style={{ background: "rgba(251,191,36,0.15)", border: "1px solid rgba(251,191,36,0.35)", color: "#fbbf24" }}
             >
-              Day {streak} Streak
+              {t.streakMilestone.dayStreak.replace("{day}", String(streak))}
             </div>
 
             {/* Headline */}
             <div>
               <h2 className="text-white font-black text-2xl leading-tight">{label}</h2>
-              <p className="text-white/50 text-sm mt-1.5">You've been on a roll — keep it up!</p>
+              <p className="text-white/50 text-sm mt-1.5">{t.streakMilestone.subtitle}</p>
             </div>
 
             {/* Coin reward */}
@@ -161,8 +162,8 @@ export function StreakMilestoneModal({ streak, coinsAwarded, onClose }: StreakMi
             >
               <Gem className="h-7 w-7 text-amber-400 drop-shadow-[0_0_8px_rgba(251,191,36,0.7)]" />
               <div className="text-left">
-                <p className="text-amber-300 font-black text-2xl leading-none">+{coinsAwarded} Coins</p>
-                <p className="text-amber-400/60 text-xs mt-0.5">Milestone reward added to your balance</p>
+                <p className="text-amber-300 font-black text-2xl leading-none">{t.streakMilestone.coins.replace("{coins}", String(coinsAwarded))}</p>
+                <p className="text-amber-400/60 text-xs mt-0.5">{t.streakMilestone.rewardAdded}</p>
               </div>
             </div>
 
@@ -172,7 +173,7 @@ export function StreakMilestoneModal({ streak, coinsAwarded, onClose }: StreakMi
               style={{ background: "linear-gradient(135deg, #f59e0b, #fbbf24)" }}
               onClick={onClose}
             >
-              Awesome! 🎉
+              {t.streakMilestone.dismiss}
             </Button>
           </div>
         </div>

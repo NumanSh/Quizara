@@ -1,123 +1,122 @@
-import { useState, useEffect, useRef } from "react";
-import { useParams, useLocation } from "wouter";
+import { useEffect, useRef, useState } from "react";
+import { useLocation, useParams } from "wouter";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { ArrowLeft, ArrowUpRight, Check, Clock3, Compass, Flag, LockKeyhole, Play, Target, Trophy, Zap } from "lucide-react";
 import { useSupabaseAuth } from "@/hooks/useSupabaseAuth";
-import { ArrowLeft, Lock, Trophy, Zap } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { useHearts } from "@/hooks/useHearts";
 import { HeartsDisplay } from "@/components/HeartsDisplay";
 import { authFetch } from "@/lib/api";
+import { cn } from "@/lib/utils";
+import { isPotentiallyAnimatedMediaUrl, isVideoMediaUrl } from "@/lib/media";
+import { useI18n } from "@/lib/i18n";
 
-const CATEGORY_BG_IMAGES: Record<string, string> = {
-  "anime":           "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=1200&q=80",
-  "anime & manga":   "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=1200&q=80",
-  "geography":       "https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?w=1200&q=80",
-  "cinema":          "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=1200&q=80",
-  "cinema & tv":     "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=1200&q=80",
-  "science":         "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1200&q=80",
-  "science & technology": "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1200&q=80",
-  "history":         "https://images.unsplash.com/photo-1461360370896-9a2f70c4e6d9?w=1200&q=80",
-  "sports":          "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?w=1200&q=80",
-  "pop culture":     "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=1200&q=80",
-  "general knowledge":"https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=1200&q=80",
-  "technology":      "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1200&q=80",
-  "music":           "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=1200&q=80",
-  "art":             "https://images.unsplash.com/photo-1549490349-8643362247b5?w=1200&q=80",
-  "food":            "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=1200&q=80",
-  "nature":          "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=1200&q=80",
-  "literature":      "https://images.unsplash.com/photo-1481627834876-b7833e8f5570?w=1200&q=80",
+const CATEGORY_IMAGES: Record<string, string> = {
+  anime: "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=1600&q=85",
+  "anime & manga": "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=1600&q=85",
+  geography: "https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?w=1600&q=85",
+  cinema: "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=1600&q=85",
+  "cinema & tv": "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=1600&q=85",
+  science: "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1600&q=85",
+  "science & technology": "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1600&q=85",
+  history: "https://images.unsplash.com/photo-1461360370896-9a2f70c4e6d9?w=1600&q=85",
+  sports: "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?w=1600&q=85",
+  "pop culture": "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=1600&q=85",
+  "general knowledge": "https://images.unsplash.com/photo-1481627834876-b7833e8f5570?w=1600&q=85",
+  technology: "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1600&q=85",
+  music: "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=1600&q=85",
+  art: "https://images.unsplash.com/photo-1549490349-8643362247b5?w=1600&q=85",
+  food: "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=1600&q=85",
+  nature: "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=1600&q=85",
+  literature: "https://images.unsplash.com/photo-1481627834876-b7833e8f5570?w=1600&q=85",
 };
 
-const THEME_COLORS: Array<{ bg: string; node: string; glow: string; dark: string }> = [
-  { bg: "rgba(99,102,241,0.55)",  node: "#818cf8", glow: "rgba(129,140,248,0.45)", dark: "rgba(49,46,129,0.7)"  },
-  { bg: "rgba(20,184,166,0.55)",  node: "#2dd4bf", glow: "rgba(45,212,191,0.45)",  dark: "rgba(19,78,74,0.7)"   },
-  { bg: "rgba(236,72,153,0.55)",  node: "#f472b6", glow: "rgba(244,114,182,0.45)", dark: "rgba(131,24,67,0.7)"  },
-  { bg: "rgba(234,179,8,0.55)",   node: "#facc15", glow: "rgba(250,204,21,0.45)",  dark: "rgba(113,63,18,0.7)"  },
-  { bg: "rgba(59,130,246,0.55)",  node: "#60a5fa", glow: "rgba(96,165,250,0.45)",  dark: "rgba(30,58,138,0.7)"  },
-  { bg: "rgba(249,115,22,0.55)",  node: "#fb923c", glow: "rgba(251,146,60,0.45)",  dark: "rgba(124,45,18,0.7)"  },
-  { bg: "rgba(168,85,247,0.55)",  node: "#c084fc", glow: "rgba(192,132,252,0.45)", dark: "rgba(88,28,135,0.7)"  },
-  { bg: "rgba(34,197,94,0.55)",   node: "#4ade80", glow: "rgba(74,222,128,0.45)",  dark: "rgba(20,83,45,0.7)"   },
-];
-
-function getTheme(name: string, index?: number) {
-  const lower = name.toLowerCase();
-  if (lower.includes("anime") || lower.includes("manga"))  return THEME_COLORS[6];
-  if (lower.includes("geo"))                               return THEME_COLORS[1];
-  if (lower.includes("cinema") || lower.includes("tv"))    return THEME_COLORS[2];
-  if (lower.includes("science") || lower.includes("tech")) return THEME_COLORS[4];
-  if (lower.includes("hist"))                              return THEME_COLORS[3];
-  if (lower.includes("sport"))                             return THEME_COLORS[5];
-  if (lower.includes("pop") || lower.includes("culture"))  return THEME_COLORS[2];
-  if (lower.includes("music"))                             return THEME_COLORS[6];
-  if (lower.includes("food"))                              return THEME_COLORS[3];
-  if (lower.includes("nature"))                            return THEME_COLORS[1];
-  if (lower.includes("liter") || lower.includes("book"))   return THEME_COLORS[4];
-  return THEME_COLORS[(index ?? 0) % THEME_COLORS.length];
-}
-
-function getBg(name: string, imageUrl: string | null): string | null {
+function getWorldImage(name: string, imageUrl: string | null) {
   if (imageUrl) return imageUrl;
-  const lower = name.toLowerCase();
-  for (const [key, url] of Object.entries(CATEGORY_BG_IMAGES)) {
-    if (lower.includes(key) || key.includes(lower)) return url;
+  const normalized = name.toLowerCase();
+  return Object.entries(CATEGORY_IMAGES).find(([key]) => normalized.includes(key) || key.includes(normalized))?.[1] ?? null;
+}
+
+function WorldBackgroundMedia({ src, fallbackSrc = null, className, reducedMotion }: { src: string | null; fallbackSrc?: string | null; className?: string; reducedMotion: boolean | null }) {
+  const [primaryFailed, setPrimaryFailed] = useState(false);
+  const [fallbackFailed, setFallbackFailed] = useState(false);
+
+  useEffect(() => {
+    setPrimaryFailed(false);
+    setFallbackFailed(false);
+  }, [src, fallbackSrc]);
+
+  let activeSrc = primaryFailed && fallbackSrc && fallbackSrc !== src ? fallbackSrc : src;
+  if (reducedMotion && activeSrc && isPotentiallyAnimatedMediaUrl(activeSrc)) {
+    activeSrc = fallbackSrc && !isPotentiallyAnimatedMediaUrl(fallbackSrc) ? fallbackSrc : null;
   }
-  return null;
-}
+  const usingFallback = Boolean(activeSrc && activeSrc === fallbackSrc && activeSrc !== src);
+  if (!activeSrc || (usingFallback && fallbackFailed) || (primaryFailed && !usingFallback)) return null;
+  const handleError = () => usingFallback ? setFallbackFailed(true) : setPrimaryFailed(true);
 
-// --- layout math ---
-const LS = 180; // px per level
-
-function containerH(total: number) {
-  return Math.max(520, 200 + Math.max(0, total - 1) * LS);
-}
-
-function nodeY(idx: number, total: number, ch: number) {
-  return ch - 110 - idx * LS;
-}
-
-function nodeX(idx: number) {
-  return 50 + 30 * Math.sin(idx * 1.15);
-}
-
-function buildPath(pts: Array<{ x: number; y: number }>) {
-  if (pts.length < 2) return "";
-  let d = `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
-  for (let i = 1; i < pts.length; i++) {
-    const a = pts[i - 1];
-    const b = pts[i];
-    const my = (a.y + b.y) / 2;
-    d += ` C ${a.x.toFixed(1)} ${my.toFixed(1)} ${b.x.toFixed(1)} ${my.toFixed(1)} ${b.x.toFixed(1)} ${b.y.toFixed(1)}`;
+  if (isVideoMediaUrl(activeSrc)) {
+    return (
+      <video
+        key={activeSrc}
+        src={activeSrc}
+        autoPlay
+        loop
+        muted
+        playsInline
+        preload="metadata"
+        aria-hidden="true"
+        onError={handleError}
+        className={cn("h-full w-full object-cover", className)}
+      />
+    );
   }
-  return d;
-}
 
-interface LevelNode { levelNumber: number; isCompleted: boolean; isUnlocked: boolean; }
-interface WorldData {
-  id: string; name: string; icon: string; color: string | null;
-  imageUrl: string | null; totalLevels: number; completedLevels: number;
-  totalQuestions: number; levels: LevelNode[];
-}
-
-function StarRow({ filled }: { filled: boolean }) {
   return (
-    <div className="flex justify-center gap-0.5 mb-2">
-      {[0, 1, 2].map(i => (
-        <svg key={i} width="16" height="16" viewBox="0 0 24 24">
-          <polygon
-            points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"
-            fill={filled ? "#fbbf24" : "rgba(255,255,255,0.2)"}
-            stroke={filled ? "#f59e0b" : "rgba(255,255,255,0.15)"}
-            strokeWidth="1"
-          />
-        </svg>
-      ))}
-    </div>
+    <motion.img
+      key={activeSrc}
+      src={activeSrc}
+      alt=""
+      aria-hidden="true"
+      onError={handleError}
+      className={cn("h-full w-full object-cover", className)}
+      animate={reducedMotion ? undefined : { scale: [1, 1.055, 1], x: ["0%", "-1.5%", "0%"] }}
+      transition={{ duration: 22, repeat: Infinity, ease: "linear" }}
+    />
   );
 }
 
+interface LevelNode {
+  levelNumber: number;
+  isCompleted: boolean;
+  isUnlocked: boolean;
+}
+
+interface WorldData {
+  id: string;
+  name: string;
+  icon: string;
+  color: string | null;
+  imageUrl: string | null;
+  totalLevels: number;
+  completedLevels: number;
+  totalQuestions: number;
+  levels: LevelNode[];
+}
+
+type LevelState = "complete" | "current" | "locked";
+
+function statusFor(level: LevelNode): LevelState {
+  if (level.isCompleted) return "complete";
+  if (level.isUnlocked) return "current";
+  return "locked";
+}
+
 export default function WorldMap() {
+  const { t } = useI18n();
   const { categoryId } = useParams();
   const [, setLocation] = useLocation();
   const { user } = useSupabaseAuth();
+  const reduceMotion = useReducedMotion();
+  const currentRef = useRef<HTMLDivElement>(null);
 
   const [worldData, setWorldData] = useState<WorldData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -125,88 +124,91 @@ export default function WorldMap() {
   const [starting, setStarting] = useState<number | null>(null);
   const [lockedTip, setLockedTip] = useState<number | null>(null);
   const [noHeartsTip, setNoHeartsTip] = useState(false);
-  const [cw, setCw] = useState(400);
 
-  const containerRef = useRef<HTMLDivElement>(null);
-  const currentRef = useRef<HTMLDivElement>(null);
   const isGuest = !user?.id;
   const { hearts, maxHearts, nextRefillMs, canPlay, watchAd } = useHearts(!!user?.id);
-
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(e => setCw(e[0].contentRect.width));
-    ro.observe(el);
-    setCw(el.clientWidth);
-    return () => ro.disconnect();
-  }, []);
 
   useEffect(() => {
     if (!categoryId) return;
     setLoading(true);
     setError(null);
     authFetch(`/api/quiz/worlds/${categoryId}`, { credentials: "include" })
-      .then(r => r.json())
+      .then(response => response.json())
       .then((data: WorldData & { error?: string }) => {
-        if (data.error) { setError(data.error); return; }
-        if (isGuest) {
-          try {
-            const local: number[] = JSON.parse(localStorage.getItem(`quizara_levels_${categoryId}`) ?? "[]");
-            const merged = data.levels.map(l => ({
-              ...l,
-              isCompleted: local.includes(l.levelNumber),
-              isUnlocked: l.levelNumber === 1 || local.includes(l.levelNumber - 1),
-            }));
-            setWorldData({ ...data, levels: merged, completedLevels: local.length });
-          } catch { setWorldData(data); }
-        } else {
+        if (data.error) {
+          setError(data.error);
+          return;
+        }
+        if (!isGuest) {
+          setWorldData(data);
+          return;
+        }
+        try {
+          const local: number[] = JSON.parse(localStorage.getItem(`quizara_levels_${categoryId}`) ?? "[]");
+          const levels = data.levels.map(level => ({
+            ...level,
+            isCompleted: local.includes(level.levelNumber),
+            isUnlocked: level.levelNumber === 1 || local.includes(level.levelNumber - 1),
+          }));
+          setWorldData({ ...data, levels, completedLevels: local.length });
+        } catch {
           setWorldData(data);
         }
       })
-      .catch(() => setError("Failed to load world"))
+      .catch(() => setError(t.worldMap.failedToLoad))
       .finally(() => setLoading(false));
   }, [categoryId, isGuest]);
 
   useEffect(() => {
-    if (worldData && currentRef.current) {
-      setTimeout(() => currentRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 350);
-    }
-  }, [worldData]);
+    if (!worldData || !currentRef.current) return;
+    const currentLevel = worldData.levels.find(level => level.isUnlocked && !level.isCompleted);
+    if (!currentLevel || currentLevel.levelNumber <= 2) return;
+    const timeout = window.setTimeout(() => {
+      currentRef.current?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "center" });
+    }, reduceMotion ? 0 : 450);
+    return () => window.clearTimeout(timeout);
+  }, [worldData, reduceMotion]);
 
   const handleLevelClick = async (level: LevelNode) => {
     if (!level.isUnlocked) {
       setLockedTip(level.levelNumber);
-      setTimeout(() => setLockedTip(null), 2500);
+      window.setTimeout(() => setLockedTip(null), 2500);
       return;
     }
     if (!canPlay && !level.isCompleted) {
       setNoHeartsTip(true);
-      setTimeout(() => setNoHeartsTip(false), 3000);
+      window.setTimeout(() => setNoHeartsTip(false), 3000);
       return;
     }
     if (starting !== null) return;
     setStarting(level.levelNumber);
     try {
-      const res = await authFetch("/api/quiz/levels/start", {
+      const response = await authFetch("/api/quiz/levels/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({ worldId: categoryId, levelNumber: level.levelNumber }),
       });
-      const data = await res.json();
-      if (!res.ok || data.error) { alert(data.error ?? "Failed to start level"); return; }
-      const p = new URLSearchParams({ levelNum: String(level.levelNumber), worldId: categoryId!, worldName: worldData?.name ?? "" });
-      setLocation(`/quiz/${data.sessionId}?${p.toString()}`);
-    } catch { alert("Failed to start level. Please try again."); }
-    finally { setStarting(null); }
+      const data = await response.json();
+      if (!response.ok || data.error) {
+        window.alert(data.error ?? t.worldMap.startLevelFailed);
+        return;
+      }
+      const params = new URLSearchParams({ levelNum: String(level.levelNumber), worldId: categoryId!, worldName: worldData?.name ?? "" });
+      setLocation(`/quiz/${data.sessionId}?${params.toString()}`);
+    } catch {
+      window.alert(t.worldMap.startLevelFailedRetry);
+    } finally {
+      setStarting(null);
+    }
   };
 
   if (loading) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-[#0d1117]">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-14 h-14 rounded-full bg-white/10 animate-pulse" />
-          <p className="text-white/40 text-sm animate-pulse">Loading world…</p>
+      <div className="editorial-grid flex min-h-[calc(100vh-5rem)] flex-1 items-center justify-center">
+        <div className="flex items-center gap-5">
+          <motion.span className="h-10 w-10 border border-primary" animate={reduceMotion ? undefined : { rotate: 360 }} transition={{ duration: 1.4, repeat: Infinity, ease: "linear" }} />
+          <div><p className="text-[9px] font-bold uppercase tracking-[0.22em] text-primary">{t.worldMap.preparingExpedition}</p><p className="mt-2 text-sm text-muted-foreground">{t.worldMap.loadingRoute}</p></div>
         </div>
       </div>
     );
@@ -214,232 +216,173 @@ export default function WorldMap() {
 
   if (error || !worldData) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8 text-center bg-[#0d1117]">
-        <p className="text-lg font-semibold text-white">{error ?? "World not found"}</p>
-        <button onClick={() => setLocation("/categories")} className="text-primary text-sm hover:underline">← Back to worlds</button>
+      <div className="editorial-grid flex min-h-[calc(100vh-5rem)] flex-1 flex-col items-center justify-center gap-5 p-8 text-center">
+        <Compass className="h-8 w-8 text-primary" />
+        <p className="text-2xl font-extrabold tracking-[-0.04em]">{error ?? t.worldMap.worldNotFound}</p>
+        <button onClick={() => setLocation("/categories")} className="focus-ring border-b border-primary pb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-primary">{t.worldMap.backToWorlds}</button>
       </div>
     );
   }
 
-  const bg = getBg(worldData.name, worldData.imageUrl);
-  const theme = getTheme(worldData.name);
-  const ch = containerH(worldData.totalLevels);
-  const progress = worldData.totalLevels > 0 ? Math.round((worldData.completedLevels / worldData.totalLevels) * 100) : 0;
-
-  const positions = worldData.levels.map((_, i) => ({
-    xPct: nodeX(i),
-    xPx: (nodeX(i) / 100) * cw,
-    yPx: nodeY(i, worldData.totalLevels, ch),
-  }));
-
-  const pathD = buildPath(positions.map(p => ({ x: p.xPx, y: p.yPx })));
+  const fallbackImage = getWorldImage(worldData.name, null);
+  const backgroundMedia = worldData.imageUrl?.trim() || fallbackImage;
+  const heroMedia = backgroundMedia && isVideoMediaUrl(backgroundMedia) ? fallbackImage : backgroundMedia;
+  const progress = worldData.totalLevels ? Math.round((worldData.completedLevels / worldData.totalLevels) * 100) : 0;
+  const routeProgress = worldData.totalLevels > 1 ? Math.min(100, (worldData.completedLevels / (worldData.totalLevels - 1)) * 100) : progress;
+  const nextLevel = worldData.levels.find(level => level.isUnlocked && !level.isCompleted)?.levelNumber ?? worldData.totalLevels;
 
   return (
-    <div ref={containerRef} className="relative w-full overflow-x-hidden" style={{ minHeight: ch }}>
-
-      {/* Background */}
-      {bg ? (
-        <div className="absolute inset-0" style={{ backgroundImage: `url(${bg})`, backgroundSize: "cover", backgroundPosition: "center top" }} />
-      ) : (
-        <div className="absolute inset-0 bg-gradient-to-b from-indigo-950 to-[#0d1117]" />
-      )}
-
-      {/* Theme colour wash */}
-      <div className="absolute inset-0" style={{ background: `linear-gradient(160deg, ${theme.bg} 0%, ${theme.dark} 100%)` }} />
-
-      {/* Darkness for readability */}
-      <div className="absolute inset-0 bg-black/45" />
-
-      {/* Top fade for header */}
-      <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/75 to-transparent pointer-events-none" />
-
-      {/* Bottom fade */}
-      <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/65 to-transparent pointer-events-none" />
-
-      {/* SVG path */}
-      {worldData.totalLevels >= 2 && cw > 0 && (
-        <svg className="absolute inset-0 pointer-events-none" width={cw} height={ch} viewBox={`0 0 ${cw} ${ch}`}>
-          {/* shadow */}
-          <path d={pathD} fill="none" stroke="rgba(0,0,0,0.5)" strokeWidth="18" strokeLinecap="round" strokeLinejoin="round" />
-          {/* path body */}
-          <path d={pathD} fill="none" stroke="rgba(255,255,255,0.22)" strokeWidth="14" strokeLinecap="round" strokeLinejoin="round" />
-          {/* bright centre */}
-          <path d={pathD} fill="none" stroke="rgba(255,255,255,0.65)" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
-          {/* dashes */}
-          <path d={pathD} fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="2" strokeLinecap="round" strokeDasharray="14 20" />
-        </svg>
-      )}
-
-      {/* Level nodes */}
-      {worldData.levels.map((level, i) => {
-        const pos = positions[i];
-        const done = level.isCompleted;
-        const current = level.isUnlocked && !level.isCompleted;
-        const locked = !level.isUnlocked;
-
-        const nodeBg   = done ? "#fbbf24" : current ? theme.node : "rgba(100,116,139,0.8)";
-        const nodeBord = done ? "#f59e0b" : current ? theme.node : "rgba(148,163,184,0.4)";
-        const textCol  = done ? "#1c1917" : "white";
-
-        return (
-          <div
-            key={level.levelNumber}
-            ref={current ? currentRef : undefined}
-            className="absolute z-10"
-            style={{ left: `${pos.xPct}%`, top: pos.yPx, transform: "translate(-50%, -50%)" }}
-          >
-            <StarRow filled={done} />
-
-            {/* Pulse ring for current level */}
-            {current && (
-              <div
-                className="absolute rounded-full animate-ping pointer-events-none"
-                style={{ inset: -10, background: theme.glow, animationDuration: "2s" }}
-              />
-            )}
-
-            {/* Soft glow halo */}
-            {(current || done) && (
-              <div
-                className="absolute rounded-full pointer-events-none"
-                style={{
-                  inset: -6,
-                  background: done
-                    ? "radial-gradient(circle, rgba(251,191,36,0.25) 0%, transparent 70%)"
-                    : `radial-gradient(circle, ${theme.glow} 0%, transparent 70%)`,
-                }}
-              />
-            )}
-
-            <button
-              onClick={() => handleLevelClick(level)}
-              disabled={starting === level.levelNumber}
-              className={cn(
-                "relative flex flex-col items-center justify-center rounded-full select-none transition-transform duration-100",
-                locked ? "cursor-not-allowed opacity-60" : "active:scale-95 hover:brightness-110",
-                starting === level.levelNumber && "cursor-wait opacity-70"
-              )}
-              style={{
-                width: 68,
-                height: 68,
-                background: nodeBg,
-                border: `3px solid ${nodeBord}`,
-                boxShadow: locked
-                  ? "0 2px 8px rgba(0,0,0,0.5)"
-                  : done
-                    ? "0 4px 16px rgba(251,191,36,0.5), 0 2px 6px rgba(0,0,0,0.5)"
-                    : `0 4px 16px ${theme.glow}, 0 2px 6px rgba(0,0,0,0.5)`,
-              }}
-            >
-              {locked ? (
-                <Lock className="h-6 w-6 text-slate-300" />
-              ) : (
-                <span
-                  className="font-black text-xl leading-none"
-                  style={{ color: textCol, textShadow: done ? "none" : "0 1px 4px rgba(0,0,0,0.4)" }}
-                >
-                  {starting === level.levelNumber ? "…" : level.levelNumber}
-                </span>
-              )}
-            </button>
-
-            {/* Locked tooltip */}
-            {lockedTip === level.levelNumber && (
-              <div
-                className="absolute -top-12 left-1/2 whitespace-nowrap text-xs text-white rounded-xl px-3 py-1.5 z-30 pointer-events-none shadow-xl"
-                style={{ transform: "translateX(-50%)", background: "rgba(0,0,0,0.88)", border: "1px solid rgba(255,255,255,0.1)" }}
-              >
-                Complete Level {level.levelNumber - 1} first
-              </div>
-            )}
-          </div>
-        );
-      })}
-
-      {/* No hearts notification */}
-      {noHeartsTip && (
-        <div
-          className="fixed top-24 left-1/2 z-50 pointer-events-none"
-          style={{ transform: "translateX(-50%)" }}
-        >
-          <div
-            className="flex items-center gap-2 text-sm text-white rounded-2xl px-4 py-3 shadow-2xl"
-            style={{ background: "rgba(15,10,10,0.92)", border: "1px solid rgba(239,68,68,0.5)", backdropFilter: "blur(12px)" }}
-          >
-            ❤️ No hearts left — wait for one to refill!
-          </div>
-        </div>
-      )}
-
-      {/* Empty world */}
-      {worldData.totalLevels === 0 && (
-        <div className="absolute inset-0 flex items-center justify-center z-20 p-8">
-          <div className="text-center rounded-2xl p-8 max-w-xs" style={{ background: "rgba(0,0,0,0.72)", border: "1px solid rgba(255,255,255,0.1)" }}>
-            <p className="font-bold text-white text-lg">No levels yet</p>
-            <p className="text-white/55 text-sm mt-1">Add at least 3 questions to generate Level 1.</p>
-            <button onClick={() => setLocation("/categories")} className="mt-4 text-primary text-sm hover:underline">← Back to worlds</button>
-          </div>
-        </div>
-      )}
-
-      {/* ── Sticky header ── */}
-      <div className="sticky top-16 z-20 flex items-center justify-between px-4 py-3 pointer-events-none">
-        <button
-          className="pointer-events-auto h-10 w-10 rounded-full flex items-center justify-center transition-all hover:scale-105 active:scale-95"
-          style={{ background: "rgba(0,0,0,0.55)", border: "1px solid rgba(255,255,255,0.15)", backdropFilter: "blur(10px)" }}
-          onClick={() => setLocation("/categories")}
-        >
-          <ArrowLeft className="h-5 w-5 text-white" />
+    <div className="relative flex-1 overflow-x-hidden">
+      <div className="fixed left-0 right-0 top-20 z-30 flex min-h-16 items-center justify-between border-b border-white/8 bg-background/92 px-4 backdrop-blur-xl sm:px-7 md:left-60 md:rtl:left-0 md:rtl:right-60">
+        <button onClick={() => setLocation("/categories")} className="focus-ring group flex h-10 items-center gap-3 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground transition-colors hover:text-foreground">
+          <ArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-1 rtl:rotate-180 rtl:group-hover:translate-x-1" /><span className="hidden sm:inline">{t.worldMap.allWorlds}</span>
         </button>
-
-        <div
-          className="pointer-events-auto text-center px-5 py-2 rounded-2xl"
-          style={{ background: "rgba(0,0,0,0.55)", border: "1px solid rgba(255,255,255,0.12)", backdropFilter: "blur(10px)" }}
-        >
-          <p className="text-white/45 text-[10px] uppercase tracking-widest font-semibold">World</p>
-          <h1 className="text-white font-black text-sm leading-tight">{worldData.name}</h1>
+        <div className="absolute left-1/2 -translate-x-1/2 text-center"><p className="text-[8px] font-bold uppercase tracking-[0.24em] text-primary">{t.worldMap.worldExpedition}</p><p className="mt-1 max-w-36 truncate text-xs font-extrabold sm:max-w-60">{worldData.name}</p></div>
+        <div className="flex items-center gap-4 sm:gap-6">
+          <div className="hidden items-center gap-2 text-[10px] font-bold tabular-nums sm:flex"><Trophy className="h-3.5 w-3.5 text-secondary" />{worldData.completedLevels}/{worldData.totalLevels}</div>
+          <HeartsDisplay hearts={hearts} maxHearts={maxHearts} nextRefillMs={nextRefillMs} size="sm" dark watchAd={watchAd} />
         </div>
-
-        <div className="pointer-events-auto flex flex-col items-end gap-1.5">
-          <div
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full"
-            style={{ background: "rgba(0,0,0,0.55)", border: "1px solid rgba(251,191,36,0.35)", backdropFilter: "blur(10px)" }}
-          >
-            <Trophy className="h-3.5 w-3.5 text-amber-400" />
-            <span className="text-amber-400 font-bold text-sm">{worldData.completedLevels}/{worldData.totalLevels}</span>
-          </div>
-          <div
-            className="px-3 py-1.5 rounded-full"
-            style={{ background: "rgba(0,0,0,0.55)", border: `1px solid ${hearts === 0 ? "rgba(239,68,68,0.55)" : "rgba(239,68,68,0.25)"}`, backdropFilter: "blur(10px)" }}
-          >
-            <HeartsDisplay hearts={hearts} maxHearts={maxHearts} nextRefillMs={nextRefillMs} size="sm" dark watchAd={watchAd} />
-          </div>
-        </div>
+        <div className="absolute inset-x-0 bottom-0 h-px bg-white/8"><motion.div className="h-px bg-primary" initial={{ scaleX: reduceMotion ? 1 : 0 }} animate={{ scaleX: progress / 100 }} transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }} style={{ transformOrigin: "left" }} /></div>
       </div>
+      <div className="h-16" aria-hidden="true" />
 
-      {/* Progress bar */}
-      <div className="sticky top-[116px] z-20 px-4 pointer-events-none">
-        <div className="h-1 w-full rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.1)" }}>
-          <div
-            className="h-full rounded-full transition-all duration-700"
-            style={{ width: `${progress}%`, background: `linear-gradient(90deg, ${theme.node}, #fbbf24)` }}
-          />
+      <header className="relative min-h-[430px] overflow-hidden border-b border-white/8">
+        {heroMedia && <WorldBackgroundMedia src={heroMedia} fallbackSrc={fallbackImage} reducedMotion={reduceMotion} className="absolute inset-0 object-center grayscale saturate-50 opacity-35" />}
+        <div className="absolute inset-0 bg-[linear-gradient(90deg,hsl(var(--background))_0%,hsl(var(--background)/0.94)_42%,hsl(var(--background)/0.45)_100%)] rtl:bg-[linear-gradient(270deg,hsl(var(--background))_0%,hsl(var(--background)/0.94)_42%,hsl(var(--background)/0.45)_100%)]" />
+        <div className="editorial-grid absolute inset-0 opacity-55" />
+        <div className="relative mx-auto flex min-h-[430px] max-w-[1320px] items-center px-5 py-16 sm:px-8 lg:px-14">
+          <motion.div initial={reduceMotion ? false : { opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.75, ease: [0.16, 1, 0.3, 1] }} className="max-w-3xl">
+            <div className="flex items-center gap-3 text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground"><span className="text-primary">{t.worldMap.route.replace("{n}", String(nextLevel).padStart(2, "0"))}</span><span className="h-px w-8 bg-white/15" />{t.worldMap.knowledgeExpedition}</div>
+            <h1 className="mt-8 text-[clamp(3.4rem,8vw,7.4rem)] font-extrabold leading-[0.87] tracking-[-0.075em]">{worldData.name}</h1>
+            <div className="mt-9 flex flex-wrap gap-x-8 gap-y-4 text-[9px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+              <span className="flex items-center gap-2"><Flag className="h-3.5 w-3.5 text-primary" />{worldData.totalLevels} {t.worldMap.checkpoints}</span>
+              <span className="flex items-center gap-2"><Target className="h-3.5 w-3.5 text-primary" />{worldData.totalQuestions} {t.worldMap.questions}</span>
+              <span className="flex items-center gap-2"><Trophy className="h-3.5 w-3.5 text-secondary" />{progress}{t.worldMap.mastered}</span>
+            </div>
+          </motion.div>
         </div>
-      </div>
+        <div className="absolute bottom-0 right-0 hidden w-64 border-l border-t border-white/10 bg-background/75 p-6 backdrop-blur-md md:block rtl:left-0 rtl:right-auto rtl:border-l-0 rtl:border-r">
+          <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-muted-foreground">{t.worldMap.currentObjective}</p><p className="mt-3 text-xl font-extrabold tracking-[-0.04em]">{t.worldMap.reachCheckpoint.replace("{n}", String(nextLevel).padStart(2, "0"))}</p>
+        </div>
+      </header>
 
-      {/* Guest notice */}
       {isGuest && (
-        <div
-          className="absolute z-20 flex items-center gap-2 text-xs text-amber-200 rounded-xl px-3 py-2"
-          style={{ top: 68, left: 16, right: 16, background: "rgba(0,0,0,0.65)", border: "1px solid rgba(251,191,36,0.2)", backdropFilter: "blur(8px)" }}
-        >
-          <Zap className="h-3 w-3 shrink-0 text-amber-400" />
-          Sign in to save your progress across devices
+        <div className="border-b border-primary/15 bg-primary/[0.035] px-5 py-4 sm:px-8">
+          <div className="mx-auto flex max-w-[1120px] items-center gap-3 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground"><Zap className="h-3.5 w-3.5 shrink-0 text-primary" />{t.worldMap.signInHint}</div>
         </div>
       )}
 
-      {/* Bottom padding */}
-      <div style={{ height: 48 }} />
+      {worldData.totalLevels === 0 ? (
+        <section className="editorial-grid flex min-h-[480px] items-center justify-center px-5 py-24 text-center">
+          <div className="max-w-md"><Compass className="mx-auto h-8 w-8 text-primary" /><p className="mt-7 text-3xl font-extrabold tracking-[-0.05em]">{t.worldMap.uncharted}</p><p className="mt-4 text-sm leading-7 text-muted-foreground">{t.worldMap.unchartedDesc}</p><button onClick={() => setLocation("/categories")} className="focus-ring mt-8 border-b border-primary pb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-primary">{t.worldMap.backToWorlds}</button></div>
+        </section>
+      ) : (
+        <section className="relative isolate mx-auto max-w-[1120px] overflow-clip px-5 py-20 sm:px-8 lg:py-28">
+          <div className="editorial-grid absolute inset-0 -z-20 opacity-50" />
+          {backgroundMedia && (
+            <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
+              <div className="sticky top-36 h-[calc(100vh-9rem)] min-h-[520px] overflow-hidden">
+                <WorldBackgroundMedia src={backgroundMedia} fallbackSrc={fallbackImage} reducedMotion={reduceMotion} className="opacity-[0.22] grayscale saturate-[0.72]" />
+                <div className="absolute inset-0 bg-[linear-gradient(to_bottom,hsl(var(--background)/0.78),hsl(var(--background)/0.42)_38%,hsl(var(--background)/0.88))]" />
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,hsl(var(--background)/0.72)_78%)]" />
+              </div>
+            </div>
+          )}
+          <div className="mb-16 flex flex-col justify-between gap-5 border-b border-white/10 pb-6 sm:flex-row sm:items-end">
+            <div><p className="text-[9px] font-bold uppercase tracking-[0.22em] text-primary">{t.worldMap.expeditionMap}</p><h2 className="mt-4 text-3xl font-extrabold tracking-[-0.05em] sm:text-4xl">{t.worldMap.advanceThroughField}</h2></div>
+            <p className="max-w-sm text-xs leading-6 text-muted-foreground">{t.worldMap.checkpointDesc}</p>
+          </div>
+
+          <div className="relative">
+            <div className="absolute bottom-24 left-[37px] top-24 w-px bg-white/10 lg:left-1/2 lg:-translate-x-1/2" />
+            <motion.div
+              className="absolute left-[37px] top-24 w-px bg-primary lg:left-1/2 lg:-translate-x-1/2"
+              initial={{ scaleY: reduceMotion ? 1 : 0 }}
+              animate={{ scaleY: routeProgress / 100 }}
+              transition={{ duration: 1.1, delay: 0.25, ease: [0.16, 1, 0.3, 1] }}
+              style={{ bottom: 96, transformOrigin: "top" }}
+            />
+
+            {worldData.levels.map((level, index) => {
+              const state = statusFor(level);
+              const isCurrent = state === "current";
+              const isComplete = state === "complete";
+              const isLocked = state === "locked";
+              const even = index % 2 === 0;
+              return (
+                <div key={level.levelNumber} ref={isCurrent ? currentRef : undefined} className="relative grid min-h-52 grid-cols-[76px_1fr] items-center lg:grid-cols-[1fr_112px_1fr]">
+                  <motion.div
+                    initial={reduceMotion ? false : { opacity: 0, y: 20 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true, amount: 0.35 }}
+                    transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+                    className={cn("relative col-start-2 row-start-1", even ? "lg:col-start-1 lg:items-end lg:text-right rtl:lg:text-left" : "lg:col-start-3")}
+                  >
+                    <button
+                      onClick={() => handleLevelClick(level)}
+                      disabled={starting === level.levelNumber}
+                      className={cn(
+                        "focus-ring group flex w-full flex-col border p-5 text-left transition-all duration-300 sm:p-6 rtl:text-right",
+                        even && "lg:ml-auto lg:text-right rtl:lg:mr-auto rtl:lg:text-left",
+                        isCurrent && "border-primary bg-primary text-primary-foreground hover:-translate-y-1",
+                        isComplete && "border-white/16 bg-card/60 hover:border-primary/45",
+                        isLocked && "cursor-not-allowed border-white/7 bg-white/[0.015] text-muted-foreground/55",
+                        starting === level.levelNumber && "cursor-wait opacity-70"
+                      )}
+                      aria-label={t.worldMap.levelStateAria.replace("{n}", String(level.levelNumber)).replace("{state}", isComplete ? t.worldMap.stateComplete : isCurrent ? t.worldMap.stateCurrent : t.worldMap.stateLocked)}
+                    >
+                      <span className={cn("text-[9px] font-bold uppercase tracking-[0.2em]", isCurrent ? "text-primary-foreground/60" : "text-muted-foreground")}>
+                        {isComplete ? t.worldMap.checkpointCleared : isCurrent ? t.worldMap.readyToBegin : t.worldMap.routeLocked}
+                      </span>
+                      <span className="mt-7 flex w-full items-end justify-between gap-4">
+                        <span><span className="block text-2xl font-extrabold tracking-[-0.04em]">{t.worldMap.level.replace("{n}", String(level.levelNumber).padStart(2, "0"))}</span><span className={cn("mt-2 flex items-center gap-2 text-[9px] font-bold uppercase tracking-[0.14em]", isCurrent ? "text-primary-foreground/65" : "text-muted-foreground")}><Clock3 className="h-3 w-3" />{t.worldMap.questionsPerLevel}</span></span>
+                        {isCurrent ? <ArrowUpRight className="h-5 w-5 shrink-0 transition-transform group-hover:-translate-y-1 group-hover:translate-x-1 rtl:group-hover:-translate-x-1" /> : isComplete ? <Check className="h-5 w-5 shrink-0 text-primary" /> : <LockKeyhole className="h-4 w-4 shrink-0" />}
+                      </span>
+                      {starting === level.levelNumber && <span className="mt-5 text-[9px] font-bold uppercase tracking-[0.18em]">{t.worldMap.openingCheckpoint}</span>}
+                    </button>
+
+                    <AnimatePresence>
+                      {lockedTip === level.levelNumber && (
+                        <motion.p initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="absolute -bottom-8 left-0 text-[10px] font-semibold text-secondary lg:left-auto lg:right-0 rtl:left-auto rtl:right-0">{t.worldMap.completeLevelToContinue.replace("{n}", String(level.levelNumber - 1))}</motion.p>
+                      )}
+                    </AnimatePresence>
+                  </motion.div>
+
+                  <div className="relative z-10 col-start-1 row-start-1 grid place-items-center lg:col-start-2">
+                    {isCurrent && !reduceMotion && <motion.span className="absolute h-16 w-16 border border-primary/35" animate={{ opacity: [0.8, 0], scale: [1, 1.5] }} transition={{ duration: 2, repeat: Infinity, ease: "easeOut" }} />}
+                    <button
+                      onClick={() => handleLevelClick(level)}
+                      disabled={starting === level.levelNumber}
+                      tabIndex={-1}
+                      aria-hidden="true"
+                      className={cn(
+                        "grid h-14 w-14 place-items-center border text-xs font-extrabold tabular-nums transition-transform active:scale-95",
+                        isCurrent && "border-primary bg-primary text-primary-foreground",
+                        isComplete && "border-primary bg-background text-primary",
+                        isLocked && "border-white/10 bg-background text-muted-foreground/45"
+                      )}
+                    >
+                      {isLocked ? <LockKeyhole className="h-4 w-4" /> : String(level.levelNumber).padStart(2, "0")}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="mt-10 grid min-h-48 place-items-center border border-dashed border-white/10 text-center">
+            <div><Flag className="mx-auto h-5 w-5 text-primary" /><p className="mt-4 text-[10px] font-bold uppercase tracking-[0.2em]">{t.worldMap.endOfRoute}</p><p className="mt-2 text-xs text-muted-foreground">{t.worldMap.endOfRouteDesc}</p></div>
+          </div>
+        </section>
+      )}
+
+      <AnimatePresence>
+        {noHeartsTip && (
+          <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="pointer-events-none fixed left-1/2 top-28 z-50 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 border border-destructive/40 bg-background/95 px-5 py-4 text-center text-xs font-bold shadow-2xl backdrop-blur-xl">
+            {t.worldMap.noHeartsLeft}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -47,69 +47,69 @@
 }
 
 :root {
-  --background: 216 28% 7%; /* #0d1117 */
-  --foreground: 210 40% 98%;
-  --border: 215 28% 17%;
-  --card: 215 22% 11%; /* #161b22 */
-  --card-foreground: 210 40% 98%;
-  --card-border: 215 28% 17%;
-  --popover: 215 22% 11%;
-  --popover-foreground: 210 40% 98%;
-  --popover-border: 215 28% 17%;
-  
-  /* Cyan accent */
-  --primary: 188 86% 53%; 
-  --primary-foreground: 216 28% 7%;
-  
-  /* Indigo secondary */
-  --secondary: 239 84% 67%;
-  --secondary-foreground: 210 40% 98%;
-  
-  --muted: 215 28% 17%;
-  --muted-foreground: 215 20% 65%;
-  --accent: 188 86% 53%;
-  --accent-foreground: 216 28% 7%;
+  --background: 66 13% 6%;
+  --foreground: 56 29% 93%;
+  --border: 66 10% 17%;
+  --card: 66 11% 9%;
+  --card-foreground: 56 29% 93%;
+  --card-border: 66 10% 17%;
+  --popover: 66 11% 9%;
+  --popover-foreground: 56 29% 93%;
+  --popover-border: 66 10% 17%;
+
+  --primary: 75 100% 68%;
+  --primary-foreground: 66 24% 7%;
+
+  --secondary: 34 91% 67%;
+  --secondary-foreground: 66 24% 7%;
+
+  --muted: 66 10% 14%;
+  --muted-foreground: 60 8% 61%;
+  --accent: 75 100% 68%;
+  --accent-foreground: 66 24% 7%;
   --destructive: 0 84% 60%;
   --destructive-foreground: 210 40% 98%;
-  --input: 215 28% 17%;
-  --ring: 188 86% 53%;
+  --input: 66 10% 17%;
+  --ring: 75 100% 68%;
 
-  --app-font-sans: 'Inter', sans-serif;
-  --radius: 0.75rem;
+  --app-font-sans: 'Manrope', sans-serif;
+  --radius: 0.6rem;
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .font-arabic {
-  --app-font-sans: 'Cairo', sans-serif;
-  font-family: 'Cairo', sans-serif;
+  --app-font-sans: 'Alexandria', sans-serif;
+  font-family: 'Alexandria', sans-serif;
 }
 
 .font-arabic * {
-  font-family: 'Cairo', sans-serif;
+  font-family: 'Alexandria', sans-serif;
   letter-spacing: 0;
 }
 
 .dark {
-  --background: 216 28% 7%;
-  --foreground: 210 40% 98%;
-  --border: 215 28% 17%;
-  --card: 215 22% 11%;
-  --card-foreground: 210 40% 98%;
-  --card-border: 215 28% 17%;
-  --popover: 215 22% 11%;
-  --popover-foreground: 210 40% 98%;
-  --popover-border: 215 28% 17%;
-  --primary: 188 86% 53%;
-  --primary-foreground: 216 28% 7%;
-  --secondary: 239 84% 67%;
-  --secondary-foreground: 210 40% 98%;
-  --muted: 215 28% 17%;
-  --muted-foreground: 215 20% 65%;
-  --accent: 188 86% 53%;
-  --accent-foreground: 216 28% 7%;
+  --background: 66 13% 6%;
+  --foreground: 56 29% 93%;
+  --border: 66 10% 17%;
+  --card: 66 11% 9%;
+  --card-foreground: 56 29% 93%;
+  --card-border: 66 10% 17%;
+  --popover: 66 11% 9%;
+  --popover-foreground: 56 29% 93%;
+  --popover-border: 66 10% 17%;
+  --primary: 75 100% 68%;
+  --primary-foreground: 66 24% 7%;
+  --secondary: 34 91% 67%;
+  --secondary-foreground: 66 24% 7%;
+  --muted: 66 10% 14%;
+  --muted-foreground: 60 8% 61%;
+  --accent: 75 100% 68%;
+  --accent-foreground: 66 24% 7%;
   --destructive: 0 84% 60%;
   --destructive-foreground: 210 40% 98%;
-  --input: 215 28% 17%;
-  --ring: 188 86% 53%;
+  --input: 66 10% 17%;
+  --ring: 75 100% 68%;
 }
 
 @layer base {
@@ -118,6 +118,14 @@
   }
   body {
     @apply font-sans antialiased bg-background text-foreground;
+    background-image:
+      radial-gradient(circle at 80% 10%, hsl(75 100% 68% / 0.035), transparent 28rem),
+      linear-gradient(hsl(66 13% 6%), hsl(66 13% 6%));
+    min-width: 320px;
+  }
+
+  button, a {
+    -webkit-tap-highlight-color: transparent;
   }
 }
 
@@ -137,4 +145,29 @@
 
 .animate-float {
   animation: float-up 4s ease-in-out infinite;
+}
+
+.editorial-grid {
+  background-image:
+    linear-gradient(to right, hsl(56 29% 93% / 0.045) 1px, transparent 1px),
+    linear-gradient(to bottom, hsl(56 29% 93% / 0.035) 1px, transparent 1px);
+  background-size: 72px 72px;
+}
+
+.hairline {
+  background: linear-gradient(90deg, transparent, hsl(56 29% 93% / 0.18), transparent);
+}
+
+.focus-ring:focus-visible {
+  outline: 2px solid hsl(var(--primary));
+  outline-offset: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

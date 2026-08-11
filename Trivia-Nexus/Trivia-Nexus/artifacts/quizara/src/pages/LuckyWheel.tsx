@@ -9,20 +9,37 @@ import { getGetProfileQueryKey } from "@workspace/api-client-react";
 import { WatchAdModal } from "@/components/WatchAdModal";
 import { Gem, Heart, Zap, Star, Trophy, RefreshCw, ArrowRight } from "lucide-react";
 import { authFetch } from "@/lib/api";
+import { useI18n } from "@/lib/i18n";
+import type { Translations } from "@/locales/en";
 
 // Matches backend WHEEL_SEGMENTS order exactly
-const SEGMENTS = [
-  { id: "coins_50",  label: "50 Coins",  emoji: "🪙", color: "#F59E0B", textColor: "#1a1a1a" },
-  { id: "coins_100", label: "100 Coins", emoji: "🪙", color: "#EAB308", textColor: "#1a1a1a" },
-  { id: "heart_1",   label: "1 Heart",   emoji: "❤️",  color: "#EF4444", textColor: "#fff" },
-  { id: "coins_200", label: "200 Coins", emoji: "🪙", color: "#D97706", textColor: "#1a1a1a" },
-  { id: "heart_2",   label: "2 Hearts",  emoji: "❤️",  color: "#EC4899", textColor: "#fff" },
-  { id: "powerup",   label: "Power-Up!", emoji: "⚡", color: "#8B5CF6", textColor: "#fff" },
-  { id: "xp_100",    label: "+100 XP",   emoji: "⭐", color: "#3B82F6", textColor: "#fff" },
-  { id: "jackpot",   label: "JACKPOT!",  emoji: "🏆", color: "#10B981", textColor: "#fff" },
-];
+function buildSegments(t: Translations) {
+  return [
+    { id: "coins_50",  label: t.luckyWheelPage.coins50,  emoji: "🪙", color: "#F59E0B", textColor: "#1a1a1a" },
+    { id: "coins_100", label: t.luckyWheelPage.coins100, emoji: "🪙", color: "#EAB308", textColor: "#1a1a1a" },
+    { id: "heart_1",   label: t.luckyWheelPage.heart1,   emoji: "❤️",  color: "#EF4444", textColor: "#fff" },
+    { id: "coins_200", label: t.luckyWheelPage.coins200, emoji: "🪙", color: "#D97706", textColor: "#1a1a1a" },
+    { id: "heart_2",   label: t.luckyWheelPage.hearts2,  emoji: "❤️",  color: "#EC4899", textColor: "#fff" },
+    { id: "powerup",   label: t.luckyWheelPage.powerUp,  emoji: "⚡", color: "#8B5CF6", textColor: "#fff" },
+    { id: "xp_100",    label: t.luckyWheelPage.xp100,    emoji: "⭐", color: "#3B82F6", textColor: "#fff" },
+    { id: "jackpot",   label: t.luckyWheelPage.jackpot,  emoji: "🏆", color: "#10B981", textColor: "#fff" },
+  ];
+}
 
-const N = SEGMENTS.length;
+const N = 8;
+
+// Label contrast per slice colour — presentation only, so it stays client-side
+// while the labels themselves come from the server.
+const SEGMENT_TEXT_COLOR: Record<string, string> = {
+  coins_50: "#1a1a1a",
+  coins_100: "#1a1a1a",
+  heart_1: "#fff",
+  coins_200: "#1a1a1a",
+  heart_2: "#fff",
+  powerup: "#fff",
+  xp_100: "#fff",
+  jackpot: "#fff",
+};
 const SLICE_DEG = 360 / N;
 const CX = 200;
 const CY = 200;
@@ -44,11 +61,19 @@ function slicePath(i: number): string {
   return `M ${CX} ${CY} L ${s.x} ${s.y} A ${R} ${R} 0 0 1 ${e.x} ${e.y} Z`;
 }
 
+interface WheelSegment {
+  id: string;
+  label: string;
+  emoji: string;
+  color: string;
+}
+
 interface WheelStatus {
   canSpin: boolean;
   freeSpinAvailable: boolean;
   extraSpins: number;
   requiresAuth?: boolean;
+  segments?: WheelSegment[];
 }
 
 interface SpinResult {
@@ -68,6 +93,7 @@ function RewardIcon({ type }: { type: string }) {
 }
 
 export default function LuckyWheel() {
+  const { t } = useI18n();
   const { isAuthenticated } = useSupabaseAuth();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
@@ -83,13 +109,19 @@ export default function LuckyWheel() {
   // Track accumulated rotation to avoid snapping back
   const accRotation = useRef(0);
 
+  // Prefer the server's segments: labels there are derived from the live,
+  // admin-configurable amounts. SEGMENTS below is only a pre-auth placeholder so
+  // the wheel can render before /wheel/status resolves.
+  const wheelSegments: WheelSegment[] =
+    status?.segments?.length === N ? status.segments : buildSegments(t);
+
   const fetchStatus = async () => {
     try {
       const res = await authFetch("/api/wheel/status", { credentials: "include" });
       const data = await res.json();
       setStatus(data);
     } catch {
-      toast({ title: "Could not load wheel status", variant: "destructive" });
+      toast({ title: t.luckyWheelPage.couldNotLoadStatus, variant: "destructive" });
     }
   };
 
@@ -103,7 +135,7 @@ export default function LuckyWheel() {
     try {
       const res = await authFetch("/api/wheel/spin", { method: "POST", credentials: "include" });
       if (res.status === 429) {
-        toast({ title: "No spins left!", description: "Come back tomorrow or watch an ad.", variant: "destructive" });
+        toast({ title: t.luckyWheelPage.noSpinsLeft, description: t.luckyWheelPage.comeBackOrWatchAd, variant: "destructive" });
         setSpinning(false);
         return;
       }
@@ -130,7 +162,7 @@ export default function LuckyWheel() {
         fetchStatus();
       }, 4500);
     } catch {
-      toast({ title: "Spin failed", variant: "destructive" });
+      toast({ title: t.luckyWheelPage.spinFailed, variant: "destructive" });
       setSpinning(false);
     }
   };
@@ -140,11 +172,11 @@ export default function LuckyWheel() {
     try {
       const res = await authFetch("/api/wheel/ad-spin", { method: "POST", credentials: "include" });
       if (res.ok) {
-        toast({ title: "Extra spin granted!", description: "Spin the wheel again!" });
+        toast({ title: t.luckyWheelPage.extraSpinGranted, description: t.luckyWheelPage.spinAgain });
         await fetchStatus();
       }
     } catch {
-      toast({ title: "Could not grant extra spin", variant: "destructive" });
+      toast({ title: t.luckyWheelPage.couldNotGrantSpin, variant: "destructive" });
     }
   };
 
@@ -161,10 +193,10 @@ export default function LuckyWheel() {
         {/* Header */}
         <div className="text-center">
           <h1 className="text-4xl font-black tracking-tight text-foreground">
-            🎡 Lucky Wheel
+            {t.luckyWheelPage.title}
           </h1>
           <p className="text-muted-foreground mt-2 text-sm">
-            Spin daily for free — win coins, hearts, power-ups, and more!
+            {t.luckyWheelPage.subtitle}
           </p>
         </div>
 
@@ -177,11 +209,11 @@ export default function LuckyWheel() {
                 ? "border-amber-500/40 bg-amber-500/10 text-amber-400"
                 : "border-border bg-card text-muted-foreground"
             )}>
-              {status.freeSpinAvailable ? "✨ Free spin ready!" : "✓ Free spin used today"}
+              {status.freeSpinAvailable ? t.luckyWheelPage.freeSpinReady : t.luckyWheelPage.freeSpinUsed}
             </div>
             {(status.extraSpins ?? 0) > 0 && (
               <div className="flex items-center gap-2 text-sm font-semibold px-4 py-2 rounded-full border border-violet-500/40 bg-violet-500/10 text-violet-400">
-                +{status.extraSpins} extra spin{status.extraSpins !== 1 ? "s" : ""}
+                {t.luckyWheelPage.extraSpins.replace("{count}", String(status.extraSpins)).replace("{plural}", status.extraSpins !== 1 ? "s" : "")}
               </div>
             )}
           </div>
@@ -217,7 +249,7 @@ export default function LuckyWheel() {
             }}
           >
             <svg viewBox="0 0 400 400" width="100%" height="100%">
-              {SEGMENTS.map((seg, i) => {
+              {wheelSegments.map((seg, i) => {
                 const midAngle = i * SLICE_DEG + SLICE_DEG / 2 - 90;
                 const lp = polarToXY(CX, CY, LABEL_R, i * SLICE_DEG + SLICE_DEG / 2);
                 const ep = polarToXY(CX, CY, LABEL_R - 28, i * SLICE_DEG + SLICE_DEG / 2);
@@ -249,7 +281,7 @@ export default function LuckyWheel() {
                       dominantBaseline="middle"
                       fontSize="11"
                       fontWeight="700"
-                      fill={seg.textColor}
+                      fill={SEGMENT_TEXT_COLOR[seg.id] ?? "#fff"}
                       transform={`rotate(${midAngle + 90}, ${lp.x}, ${lp.y + 18})`}
                     >
                       {seg.label}
@@ -282,16 +314,16 @@ export default function LuckyWheel() {
             <div>
               <p className="text-2xl font-black text-foreground">{result.segment.emoji} {result.segment.label}</p>
               {result.reward.coins > 0 && (
-                <p className="text-muted-foreground text-sm mt-1">+{result.reward.coins} coins added to your wallet</p>
+                <p className="text-muted-foreground text-sm mt-1">{t.luckyWheelPage.coinsAdded.replace("{coins}", String(result.reward.coins))}</p>
               )}
               {result.reward.hearts > 0 && (
-                <p className="text-muted-foreground text-sm mt-1">+{result.reward.hearts} heart{result.reward.hearts > 1 ? "s" : ""} restored</p>
+                <p className="text-muted-foreground text-sm mt-1">{t.luckyWheelPage.heartsRestored.replace("{count}", String(result.reward.hearts)).replace("{plural}", result.reward.hearts > 1 ? "s" : "")}</p>
               )}
               {result.reward.xp > 0 && (
-                <p className="text-muted-foreground text-sm mt-1">+{result.reward.xp} XP added to Battle Pass</p>
+                <p className="text-muted-foreground text-sm mt-1">{t.luckyWheelPage.xpAdded.replace("{xp}", String(result.reward.xp))}</p>
               )}
               {result.reward.powerupName && (
-                <p className="text-muted-foreground text-sm mt-1">{result.reward.powerupName} added to inventory</p>
+                <p className="text-muted-foreground text-sm mt-1">{t.luckyWheelPage.itemAdded.replace("{name}", result.reward.powerupName)}</p>
               )}
             </div>
           </div>
@@ -300,9 +332,9 @@ export default function LuckyWheel() {
         {/* Spin button / status */}
         {!isAuthenticated ? (
           <div className="flex flex-col items-center gap-3">
-            <p className="text-muted-foreground text-sm">Sign in to spin the wheel</p>
+            <p className="text-muted-foreground text-sm">{t.luckyWheelPage.signInToSpin}</p>
             <Button onClick={() => setLocation("/login")} size="lg" className="min-w-48">
-              Sign In to Spin <ArrowRight className="ml-2 h-4 w-4" />
+              {t.luckyWheelPage.signInBtn} <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
           </div>
         ) : status?.canSpin ? (
@@ -315,18 +347,18 @@ export default function LuckyWheel() {
             {isAnimating ? (
               <span className="flex items-center gap-2">
                 <span className="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin" />
-                Spinning...
+                {t.luckyWheelPage.spinning}
               </span>
             ) : (
               <span className="flex items-center gap-2">
                 <RefreshCw className="h-5 w-5" />
-                {status.freeSpinAvailable ? "Spin for Free!" : "Use Extra Spin"}
+                {status.freeSpinAvailable ? t.luckyWheelPage.spinFree : t.luckyWheelPage.useExtraSpin}
               </span>
             )}
           </Button>
         ) : (
           <div className="flex flex-col items-center gap-3 w-full max-w-xs">
-            <p className="text-muted-foreground text-sm font-medium">Free spin used today</p>
+            <p className="text-muted-foreground text-sm font-medium">{t.luckyWheelPage.freeSpinUsedToday}</p>
             <Button
               size="lg"
               variant="outline"
@@ -334,19 +366,19 @@ export default function LuckyWheel() {
               className="w-full h-12 border-violet-500/40 text-violet-400 hover:bg-violet-500/10"
             >
               <Zap className="mr-2 h-4 w-4" />
-              Watch Ad for Extra Spin
+              {t.luckyWheelPage.watchAdExtraSpin}
             </Button>
-            <p className="text-xs text-muted-foreground">Come back tomorrow for your free spin!</p>
+            <p className="text-xs text-muted-foreground">{t.luckyWheelPage.comeBackFreeSpin}</p>
           </div>
         )}
 
         {/* Reward table */}
         <div className="w-full rounded-xl border border-border bg-card overflow-hidden">
           <div className="px-5 py-3 border-b border-border">
-            <h3 className="font-bold text-sm">Possible Rewards</h3>
+            <h3 className="font-bold text-sm">{t.luckyWheelPage.possibleRewards}</h3>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-0">
-            {SEGMENTS.map((seg, i) => (
+            {wheelSegments.map((seg, i) => (
               <div
                 key={seg.id}
                 className={cn(

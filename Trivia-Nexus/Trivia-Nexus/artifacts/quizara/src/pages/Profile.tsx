@@ -16,9 +16,10 @@ import { useStreak } from "@/hooks/useStreak";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { authFetch } from "@/lib/api";
-import { getFrameStyle, getBgStyle, getUsernameStyle, FRAME_DEFS, BG_DEFS, COLOR_DEFS } from "@/lib/cosmetics";
-import { RankBadge } from "@/components/RankBadge";
+import { getFrameStyle, getBgStyle, getUsernameStyle, cosmeticLabel, FRAME_DEFS, BG_DEFS, COLOR_DEFS } from "@/lib/cosmetics";
+import { RankBadge, rankTitleLabel } from "@/components/RankBadge";
 import { getXpProgress, XP_RANKS } from "@/lib/xpRank";
+import { useI18n } from "@/lib/i18n";
 
 const COUNTRIES = [
   "Afghanistan", "Albania", "Algeria", "Angola", "Argentina", "Armenia", "Australia",
@@ -64,6 +65,7 @@ function WinRateArc({ winRate }: { winRate: number }) {
 }
 
 export default function Profile() {
+  const { t } = useI18n();
   const { isAuthenticated, login } = useSupabaseAuth();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
@@ -108,9 +110,9 @@ export default function Profile() {
       if (!res.ok) return;
       const data = await res.json();
       setBadges(prev => prev.map(b => b.id === badgeId ? { ...b, coinsClaimed: true } : b));
-      toast({ title: `+${data.coinsAwarded} coins claimed!`, description: `Total: ${data.totalCoins} coins` });
+      toast({ title: t.profilePage.coinsClaimedToast.replace("{amount}", String(data.coinsAwarded)), description: t.profilePage.coinsClaimedTotal.replace("{total}", String(data.totalCoins)) });
     } catch {
-      toast({ title: "Failed to claim coins", variant: "destructive" });
+      toast({ title: t.profilePage.claimFailed, variant: "destructive" });
     }
   };
 
@@ -124,11 +126,11 @@ export default function Profile() {
   const updateProfile = useUpdateProfile({
     mutation: {
       onSuccess: () => {
-        toast({ title: "Profile updated", description: "Your changes have been saved." });
+        toast({ title: t.profilePage.profileUpdated, description: t.profilePage.profileUpdatedDesc });
         refetch();
       },
       onError: () => {
-        toast({ title: "Error", description: "Failed to update profile.", variant: "destructive" });
+        toast({ title: t.profilePage.error, description: t.profilePage.updateFailed, variant: "destructive" });
       },
     },
   });
@@ -149,12 +151,12 @@ export default function Profile() {
         <div className="h-20 w-20 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center">
           <User className="h-10 w-10 text-primary" />
         </div>
-        <h2 className="text-2xl font-bold">Sign in to view your profile</h2>
+        <h2 className="text-2xl font-bold">{t.profilePage.signInTitle}</h2>
         <p className="text-muted-foreground max-w-sm">
-          Track your progress, earn points, and compete on the global leaderboard.
+          {t.profilePage.signInDesc}
         </p>
         <Button onClick={() => login()} size="lg" className="bg-primary text-primary-foreground">
-          Sign In
+          {t.profilePage.signIn}
         </Button>
       </div>
     );
@@ -166,13 +168,13 @@ export default function Profile() {
         <div className="h-20 w-20 rounded-full bg-destructive/10 border border-destructive/20 flex items-center justify-center">
           <Flame className="h-10 w-10 text-destructive" />
         </div>
-        <h2 className="text-2xl font-bold">Failed to load profile</h2>
+        <h2 className="text-2xl font-bold">{t.profilePage.loadFailedTitle}</h2>
         <p className="text-muted-foreground max-w-sm">
-          There was a problem retrieving your profile data. Please check your connection and try again.
+          {t.profilePage.loadFailedDesc}
         </p>
         <Button onClick={() => refetch()} variant="outline" className="gap-2">
           <Gamepad2 className="h-4 w-4" />
-          Retry
+          {t.profilePage.retry}
         </Button>
       </div>
     );
@@ -227,16 +229,16 @@ export default function Profile() {
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-3xl font-bold truncate max-w-[300px]" style={colorStyle}>
-                {profile.username || "Your Profile"}
+                {profile.username || t.profilePage.yourProfile}
               </h1>
               <RankBadge totalXp={(profile as any).totalXp ?? 0} size="sm" />
             </div>
             <p className="text-muted-foreground flex items-center gap-2 mt-1">
-              {profile.country || "No country set"}
+              {profile.country || t.profilePage.noCountry}
               {profile.role === "admin" && (
                 <span className="inline-flex items-center gap-1 text-xs bg-secondary/20 text-secondary px-2 py-0.5 rounded-full border border-secondary/30">
                   <Shield className="h-3 w-3" />
-                  Admin
+                  {t.profilePage.admin}
                 </span>
               )}
             </p>
@@ -245,17 +247,17 @@ export default function Profile() {
               <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                 {activeFrame && (
                   <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 rounded-full">
-                    {FRAME_DEFS[activeFrame]?.emoji} {FRAME_DEFS[activeFrame]?.label}
+                    {FRAME_DEFS[activeFrame]?.emoji} {cosmeticLabel(t, activeFrame)}
                   </span>
                 )}
                 {activeBg && (
                   <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 rounded-full">
-                    {BG_DEFS[activeBg]?.emoji} {BG_DEFS[activeBg]?.label}
+                    {BG_DEFS[activeBg]?.emoji} {cosmeticLabel(t, activeBg)}
                   </span>
                 )}
                 {activeColor && (
                   <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 rounded-full">
-                    {COLOR_DEFS[activeColor]?.emoji} {COLOR_DEFS[activeColor]?.label}
+                    {COLOR_DEFS[activeColor]?.emoji} {cosmeticLabel(t, activeColor)}
                   </span>
                 )}
               </div>
@@ -270,11 +272,11 @@ export default function Profile() {
               🔥 {streak.currentStreak}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="font-bold text-base text-foreground">Day Streak</p>
+              <p className="font-bold text-base text-foreground">{t.profilePage.dayStreak}</p>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Best: {streak.longestStreak} days
+                {t.profilePage.best.replace("{days}", String(streak.longestStreak))}
                 {streak.nextMilestone && (
-                  <> · <span className="text-amber-400">{streak.nextMilestone - streak.currentStreak} days to Day {streak.nextMilestone} milestone</span></>
+                  <> · <span className="text-amber-400">{t.profilePage.daysToMilestone.replace("{days}", String(streak.nextMilestone - streak.currentStreak)).replace("{milestone}", String(streak.nextMilestone))}</span></>
                 )}
               </p>
               {streak.nextMilestone && (
@@ -288,7 +290,7 @@ export default function Profile() {
             </div>
             {streak.checkedInToday && (
               <span className="text-xs font-bold text-green-400 bg-green-400/10 border border-green-400/20 px-2 py-1 rounded-full shrink-0">
-                ✓ Today
+                {t.profilePage.today}
               </span>
             )}
           </div>
@@ -311,16 +313,16 @@ export default function Profile() {
                     </div>
                     <div>
                       <p className={cn("font-black text-lg leading-tight", progress.current.textColor)}>
-                        {progress.current.title}
+                        {rankTitleLabel(t, progress.current.title)}
                       </p>
-                      <p className="text-xs text-muted-foreground">{totalXp.toLocaleString()} total XP</p>
+                      <p className="text-xs text-muted-foreground">{t.profilePage.totalXp.replace("{xp}", totalXp.toLocaleString())}</p>
                     </div>
                   </div>
                   {progress.next && (
                     <div className="text-right">
-                      <p className="text-xs text-muted-foreground">Next rank</p>
+                      <p className="text-xs text-muted-foreground">{t.profilePage.nextRank}</p>
                       <p className="text-sm font-bold text-muted-foreground">
-                        {progress.next.emoji} {progress.next.title}
+                        {progress.next.emoji} {rankTitleLabel(t, progress.next.title)}
                       </p>
                     </div>
                   )}
@@ -349,14 +351,14 @@ export default function Profile() {
                     <div className="flex items-center justify-between text-[10px] text-muted-foreground">
                       <span>{progress.current.minXp.toLocaleString()} XP</span>
                       <span className={cn("font-semibold", progress.current.textColor)}>
-                        {progress.progressPct}% · {progress.xpNeededForNext} XP to {progress.next.title}
+                        {progress.progressPct}% · {progress.xpNeededForNext} {t.profilePage.xpTo} {rankTitleLabel(t, progress.next.title)}
                       </span>
                       <span>{progress.next.minXp.toLocaleString()} XP</span>
                     </div>
                   </div>
                 ) : (
                   <div className="text-center py-1">
-                    <p className="text-xs font-semibold text-yellow-400">👑 Maximum rank achieved!</p>
+                    <p className="text-xs font-semibold text-yellow-400">{t.profilePage.maxRankAchieved}</p>
                   </div>
                 )}
 
@@ -371,7 +373,7 @@ export default function Profile() {
                       <span className={cn(
                         "text-[9px] font-bold",
                         totalXp >= r.minXp ? r.textColor : "text-muted-foreground"
-                      )}>{r.title}</span>
+                      )}>{rankTitleLabel(t, r.title)}</span>
                     </div>
                   ))}
                 </div>
@@ -385,17 +387,17 @@ export default function Profile() {
           <div className="rounded-xl border border-border bg-card p-5 flex flex-col items-center gap-2 text-center">
             <Trophy className="h-6 w-6 text-yellow-400" />
             <span className="text-3xl font-black">{profile.totalScore || 0}</span>
-            <span className="text-xs text-muted-foreground uppercase tracking-wide">Total Score</span>
+            <span className="text-xs text-muted-foreground uppercase tracking-wide">{t.profilePage.totalScore}</span>
           </div>
           <div className="rounded-xl border border-border bg-card p-5 flex flex-col items-center gap-2 text-center">
             <Gamepad2 className="h-6 w-6 text-primary" />
             <span className="text-3xl font-black">{profile.gamesPlayed || 0}</span>
-            <span className="text-xs text-muted-foreground uppercase tracking-wide">Games Played</span>
+            <span className="text-xs text-muted-foreground uppercase tracking-wide">{t.profilePage.gamesPlayed}</span>
           </div>
           <div className="rounded-xl border border-border bg-card p-5 flex flex-col items-center gap-2 text-center">
             <Target className="h-6 w-6 text-secondary" />
             <span className="text-3xl font-black">{profile.bestScore || 0}</span>
-            <span className="text-xs text-muted-foreground uppercase tracking-wide">Best Score</span>
+            <span className="text-xs text-muted-foreground uppercase tracking-wide">{t.profilePage.bestScore}</span>
           </div>
         </div>
 
@@ -404,12 +406,12 @@ export default function Profile() {
           <div className="rounded-xl border border-orange-500/20 bg-orange-500/5 p-5 flex flex-col items-center gap-2 text-center">
             <Flame className="h-6 w-6 text-orange-400" />
             <span className="text-3xl font-black text-orange-400">{streak?.currentStreak ?? 0}</span>
-            <span className="text-xs text-muted-foreground uppercase tracking-wide">Current Streak</span>
+            <span className="text-xs text-muted-foreground uppercase tracking-wide">{t.profilePage.currentStreak}</span>
           </div>
           <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-5 flex flex-col items-center gap-2 text-center">
             <Trophy className="h-6 w-6 text-amber-400" />
             <span className="text-3xl font-black text-amber-400">{streak?.longestStreak ?? 0}</span>
-            <span className="text-xs text-muted-foreground uppercase tracking-wide">Best Streak</span>
+            <span className="text-xs text-muted-foreground uppercase tracking-wide">{t.profilePage.bestStreak}</span>
           </div>
         </div>
 
@@ -427,8 +429,8 @@ export default function Profile() {
                   <Swords className="h-5 w-5 text-primary" />
                 </div>
                 <div>
-                  <h2 className="font-bold text-lg leading-tight">Arena Record</h2>
-                  <p className="text-xs text-muted-foreground">Multiplayer battle stats</p>
+                  <h2 className="font-bold text-lg leading-tight">{t.profilePage.arenaRecord}</h2>
+                  <p className="text-xs text-muted-foreground">{t.profilePage.arenaRecordDesc}</p>
                 </div>
               </div>
               {arenaStats?.rank != null && (
@@ -437,7 +439,7 @@ export default function Profile() {
                     <Crown className="h-4 w-4 text-yellow-400" />
                     <span className="text-2xl font-black text-yellow-400">#{arenaStats.rank}</span>
                   </div>
-                  <p className="text-xs text-muted-foreground">Arena Rank</p>
+                  <p className="text-xs text-muted-foreground">{t.profilePage.arenaRank}</p>
                 </div>
               )}
             </div>
@@ -449,15 +451,15 @@ export default function Profile() {
             ) : !hasArenaGames ? (
               <div className="flex flex-col items-center py-6 gap-3 text-center">
                 <Swords className="h-10 w-10 text-muted-foreground/20" />
-                <p className="text-sm font-medium text-muted-foreground">No arena matches played yet</p>
-                <p className="text-xs text-muted-foreground/60">Play Online or Friends Game to build your record</p>
+                <p className="text-sm font-medium text-muted-foreground">{t.profilePage.noArenaGames}</p>
+                <p className="text-xs text-muted-foreground/60">{t.profilePage.noArenaGamesHint}</p>
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => setLocation("/arena")}
                   className="mt-1 border-primary/30 text-primary hover:bg-primary/10"
                 >
-                  Go to Arena
+                  {t.profilePage.goToArena}
                 </Button>
               </div>
             ) : (
@@ -467,7 +469,7 @@ export default function Profile() {
                   <WinRateArc winRate={arenaStats?.winRate ?? 0} />
                   <div className="absolute inset-0 flex flex-col items-center justify-center">
                     <span className="text-sm font-black leading-none">{arenaStats?.winRate ?? 0}%</span>
-                    <span className="text-[9px] text-muted-foreground leading-none mt-0.5">WIN</span>
+                    <span className="text-[9px] text-muted-foreground leading-none mt-0.5">{t.profilePage.win}</span>
                   </div>
                 </div>
 
@@ -478,28 +480,28 @@ export default function Profile() {
                     "border-green-500/20 bg-green-500/5"
                   )}>
                     <p className="text-2xl font-black text-green-400">{arenaStats?.wins ?? 0}</p>
-                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mt-0.5">Wins</p>
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mt-0.5">{t.profilePage.wins}</p>
                   </div>
                   <div className={cn(
                     "rounded-xl border p-3 text-center",
                     "border-red-500/20 bg-red-500/5"
                   )}>
                     <p className="text-2xl font-black text-red-400">{arenaStats?.losses ?? 0}</p>
-                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mt-0.5">Losses</p>
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mt-0.5">{t.profilePage.losses}</p>
                   </div>
                   <div className={cn(
                     "rounded-xl border p-3 text-center",
                     "border-border bg-muted/20"
                   )}>
                     <p className="text-2xl font-black text-muted-foreground">{arenaStats?.draws ?? 0}</p>
-                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mt-0.5">Draws</p>
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mt-0.5">{t.profilePage.draws}</p>
                   </div>
                   <div className={cn(
                     "rounded-xl border p-3 text-center",
                     "border-primary/20 bg-primary/5"
                   )}>
                     <p className="text-2xl font-black text-primary">{arenaStats?.totalGames ?? 0}</p>
-                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mt-0.5">Total</p>
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mt-0.5">{t.profilePage.total}</p>
                   </div>
                 </div>
               </div>
@@ -508,7 +510,7 @@ export default function Profile() {
             {hasArenaGames && (
               <div className="mt-4 pt-4 border-t border-border/50 flex items-center justify-between">
                 <p className="text-xs text-muted-foreground">
-                  Arena Score: <span className="font-bold text-foreground">{(arenaStats?.totalScore ?? 0).toLocaleString()} pts</span>
+                  {t.profilePage.arenaScore} <span className="font-bold text-foreground">{(arenaStats?.totalScore ?? 0).toLocaleString()} {t.profilePage.arenaScorePts}</span>
                 </p>
                 <Button
                   variant="ghost"
@@ -516,7 +518,7 @@ export default function Profile() {
                   onClick={() => setLocation("/leaderboard")}
                   className="text-xs text-primary hover:bg-primary/10 h-7 px-3"
                 >
-                  View Arena Leaderboard →
+                  {t.profilePage.viewArenaLeaderboard}
                 </Button>
               </div>
             )}
@@ -531,15 +533,15 @@ export default function Profile() {
                 <Medal className="h-5 w-5 text-yellow-400" />
               </div>
               <div>
-                <h2 className="font-bold text-lg leading-tight">Trophy Cabinet</h2>
+                <h2 className="font-bold text-lg leading-tight">{t.profilePage.trophyCabinet}</h2>
                 <p className="text-xs text-muted-foreground">
-                  {badges.filter(b => b.earned).length} / {badges.length} earned
+                  {t.profilePage.earnedOf.replace("{earned}", String(badges.filter(b => b.earned).length)).replace("{total}", String(badges.length))}
                 </p>
               </div>
             </div>
             {badges.some(b => b.earned && !b.coinsClaimed && b.coinReward > 0) && (
               <span className="text-xs font-bold text-amber-400 bg-amber-400/10 border border-amber-400/20 px-2.5 py-1 rounded-full animate-pulse">
-                Coins ready!
+                {t.profilePage.coinsReady}
               </span>
             )}
           </div>
@@ -551,7 +553,7 @@ export default function Profile() {
           ) : badges.length === 0 ? (
             <div className="py-10 text-center text-muted-foreground">
               <Medal className="h-10 w-10 mx-auto mb-3 opacity-20" />
-              <p className="text-sm">No badges defined yet</p>
+              <p className="text-sm">{t.profilePage.noBadges}</p>
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -582,7 +584,7 @@ export default function Profile() {
                   </div>
                   {badge.earned && badge.coinReward > 0 && (
                     badge.coinsClaimed ? (
-                      <span className="text-[10px] text-green-400 font-medium">✓ {badge.coinReward} coins claimed</span>
+                      <span className="text-[10px] text-green-400 font-medium">{t.profilePage.coinsClaimed.replace("{amount}", String(badge.coinReward))}</span>
                     ) : (
                       <Button
                         size="sm"
@@ -590,12 +592,12 @@ export default function Profile() {
                         className="h-6 text-[10px] px-2.5 bg-amber-500/10 text-amber-400 border-amber-500/30 hover:bg-amber-500/20"
                         onClick={() => claimBadgeCoins(badge.id)}
                       >
-                        Claim {badge.coinReward} 🪙
+                        {t.profilePage.claim.replace("{amount}", String(badge.coinReward))}
                       </Button>
                     )
                   )}
                   {badge.earned && badge.coinReward === 0 && (
-                    <span className="text-[10px] text-muted-foreground">No coin reward</span>
+                    <span className="text-[10px] text-muted-foreground">{t.profilePage.noCoinReward}</span>
                   )}
                 </div>
               ))}
@@ -605,24 +607,24 @@ export default function Profile() {
 
         {/* ── Edit Form ── */}
         <div className="rounded-xl border border-border bg-card p-6 space-y-6">
-          <h2 className="text-lg font-semibold">Edit Profile</h2>
+          <h2 className="text-lg font-semibold">{t.profilePage.editProfile}</h2>
 
           <div className="space-y-2">
-            <Label htmlFor="username">Username</Label>
+            <Label htmlFor="username">{t.profilePage.username}</Label>
             <Input
               id="username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="Choose a display name"
+              placeholder={t.profilePage.usernamePlaceholder}
               className="bg-muted/30 border-border"
             />
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="country">Country</Label>
+            <Label htmlFor="country">{t.profilePage.country}</Label>
             <Select value={country} onValueChange={setCountry}>
               <SelectTrigger className="bg-muted/30 border-border">
-                <SelectValue placeholder="Select your country" />
+                <SelectValue placeholder={t.profilePage.countryPlaceholder} />
               </SelectTrigger>
               <SelectContent className="max-h-64">
                 {COUNTRIES.map((c) => (
@@ -640,20 +642,20 @@ export default function Profile() {
                   onClick={() => setShowAdminField(true)}
                   className="text-xs text-muted-foreground hover:text-foreground transition-colors underline-offset-2 hover:underline"
                 >
-                  Have an admin code?
+                  {t.profilePage.haveAdminCode}
                 </button>
               ) : (
                 <>
                   <Label htmlFor="adminCode" className="flex items-center gap-2">
                     <Shield className="h-4 w-4" />
-                    Admin Code
+                    {t.profilePage.adminCode}
                   </Label>
                   <Input
                     id="adminCode"
                     type="password"
                     value={adminCode}
                     onChange={(e) => setAdminCode(e.target.value)}
-                    placeholder="Enter admin access code"
+                    placeholder={t.profilePage.adminCodePlaceholder}
                     className="bg-muted/30 border-border"
                   />
                 </>
@@ -667,7 +669,7 @@ export default function Profile() {
             className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
           >
             <Save className="mr-2 h-4 w-4" />
-            {updateProfile.isPending ? "Saving..." : "Save Changes"}
+            {updateProfile.isPending ? t.profilePage.saving : t.profilePage.saveChanges}
           </Button>
         </div>
 
@@ -676,12 +678,12 @@ export default function Profile() {
             <div className="flex items-center gap-3">
               <Shield className="h-6 w-6 text-secondary" />
               <div>
-                <p className="font-semibold text-secondary">Admin Access</p>
-                <p className="text-sm text-muted-foreground">You have full admin privileges</p>
+                <p className="font-semibold text-secondary">{t.profilePage.adminAccess}</p>
+                <p className="text-sm text-muted-foreground">{t.profilePage.adminAccessDesc}</p>
               </div>
             </div>
             <Button variant="outline" onClick={() => setLocation("/admin")} className="border-secondary/40 text-secondary hover:bg-secondary/10">
-              Admin Panel
+              {t.profilePage.adminPanel}
             </Button>
           </div>
         )}

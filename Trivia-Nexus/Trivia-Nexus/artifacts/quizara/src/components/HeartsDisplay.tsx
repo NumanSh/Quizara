@@ -2,6 +2,7 @@ import { Heart, Tv2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useEffect, useState } from "react";
 import { WatchAdModal } from "./WatchAdModal";
+import { useI18n } from "@/lib/i18n";
 
 interface HeartsDisplayProps {
   hearts: number;
@@ -31,6 +32,7 @@ export function HeartsDisplay({
   dark = false,
   watchAd,
 }: HeartsDisplayProps) {
+  const { t } = useI18n();
   const [countdown, setCountdown] = useState(nextRefillMs);
   const [showAd, setShowAd] = useState(false);
 
@@ -89,7 +91,7 @@ export function HeartsDisplay({
             )}
           >
             <Tv2 className={size === "sm" ? "h-2.5 w-2.5" : "h-3 w-3"} />
-            {size === "sm" ? "+1❤" : "Watch Ad +1 ❤"}
+            {size === "sm" ? "+1❤" : t.hearts.watchAd}
           </button>
         )}
 
@@ -100,7 +102,7 @@ export function HeartsDisplay({
           </span>
         )}
         {needsRefill && !watchAd && countdown <= 0 && hearts === 0 && (
-          <span className={cn(textCls, "text-red-400 font-semibold leading-none")}>No hearts!</span>
+          <span className={cn(textCls, "text-red-400 font-semibold leading-none")}>{t.hearts.noHearts}</span>
         )}
       </div>
 
