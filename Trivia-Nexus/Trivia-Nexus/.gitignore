@@ -60,3 +60,11 @@ dump_*.mjs
 scratch/
 
 
+
+# Question import working files (large binaries, regenerate locally)
+questions_template.xlsx
+questions_template.backup.xlsx
+
+# Local database dumps (may contain live secrets/PII)
+supabase_ready_data.sql
+trivia_data.sql
