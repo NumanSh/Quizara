@@ -20,23 +20,18 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { WatchAdModal } from "@/components/WatchAdModal";
-import { MonetagBanner } from "@/components/MonetagBanner";
 import {
   FRAME_DEFS, BG_DEFS, COLOR_DEFS,
-  getFrameStyle, getBgStyle, getUsernameStyle,
+  getFrameStyle, getBgStyle, getUsernameStyle, cosmeticLabel,
 } from "@/lib/cosmetics";
 import { authFetch } from "@/lib/api";
+import { useI18n } from "@/lib/i18n";
+import type { Translations } from "@/locales/en";
 
 // ─── Power-up metadata ────────────────────────────────────────────────────────
-const EFFECT_LABELS: Record<string, string> = {
-  fifty_fifty:   "Eliminates 2 wrong answers",
-  freeze_timer:  "Freezes the timer for 10 seconds",
-  extra_time:    "Adds 15 extra seconds",
-  skip_question: "Skip any question penalty-free",
-  double_score:  "Doubles points for one question",
-  lucky_wheel:   "Spin for a random bonus",
-  streak_freeze: "Protects your streak for one missed day",
-};
+function effectLabel(t: Translations, effect: string): string | undefined {
+  return (t.powerupEffects as Record<string, string>)[effect];
+}
 const EFFECT_COLORS: Record<string, string> = {
   fifty_fifty:   "from-blue-500/20 to-cyan-500/20 border-blue-500/30",
   freeze_timer:  "from-sky-500/20 to-blue-500/20 border-sky-500/30",
@@ -105,6 +100,7 @@ function CosmeticCard({
   onEquip: () => void;
   onUnequip: () => void;
 }) {
+  const { t } = useI18n();
   const isFrame = item.effect?.startsWith("frame_");
   const isBg = item.effect?.startsWith("bg_");
   const isColor = item.effect?.startsWith("color_");
@@ -119,7 +115,7 @@ function CosmeticCard({
       {equipped && (
         <div className="absolute top-2 right-2">
           <Badge className="bg-primary/20 text-primary border-primary/40 text-[10px] px-1.5 py-0 h-4">
-            <CheckCircle2 className="h-2.5 w-2.5 mr-0.5" /> Equipped
+            <CheckCircle2 className="h-2.5 w-2.5 mr-0.5" /> {t.marketplacePage.equippedBadge}
           </Badge>
         </div>
       )}
@@ -156,7 +152,7 @@ function CosmeticCard({
               disabled={equipping}
               className="h-7 text-xs px-2.5 border-red-500/30 text-red-400 hover:bg-red-500/10"
             >
-              {equipping ? "..." : "Unequip"}
+              {equipping ? "..." : t.marketplacePage.unequip}
             </Button>
           ) : (
             <Button
@@ -165,7 +161,7 @@ function CosmeticCard({
               disabled={equipping}
               className="h-7 text-xs px-2.5 bg-primary text-primary-foreground hover:bg-primary/90"
             >
-              {equipping ? "..." : "Equip"}
+              {equipping ? "..." : t.marketplacePage.equip}
             </Button>
           )
         ) : (
@@ -178,7 +174,7 @@ function CosmeticCard({
               canAfford ? "bg-amber-500 hover:bg-amber-400 text-black" : "opacity-50 cursor-not-allowed"
             )}
           >
-            {purchasing ? "..." : !canAfford ? "Need coins" : "Buy"}
+            {purchasing ? "..." : !canAfford ? t.marketplacePage.needCoins : t.marketplacePage.buy}
           </Button>
         )}
       </div>
@@ -188,6 +184,7 @@ function CosmeticCard({
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function Marketplace() {
+  const { t } = useI18n();
   const { isAuthenticated, login } = useSupabaseAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -224,18 +221,18 @@ export default function Marketplace() {
   const handlePurchase = async (item: any) => {
     if (!isAuthenticated) { login(); return; }
     if (coins < item.price) {
-      toast({ title: "Not enough coins", description: `You need ${item.price - coins} more coins.`, variant: "destructive" });
+      toast({ title: t.marketplacePage.notEnoughCoins, description: t.marketplacePage.needMoreCoins.replace("{amount}", String(item.price - coins)), variant: "destructive" });
       return;
     }
     setPurchasing(item.id);
     try {
       const result = await purchaseMutation.mutateAsync({ data: { itemId: item.id } });
-      toast({ title: "Purchase successful!", description: `You bought ${result.itemName}. ${result.remainingCoins} coins remaining.` });
+      toast({ title: t.marketplacePage.purchaseSuccess, description: t.marketplacePage.purchaseSuccessDesc.replace("{item}", result.itemName).replace("{remaining}", String(result.remainingCoins)) });
       queryClient.invalidateQueries({ queryKey: getGetProfileQueryKey() });
       queryClient.invalidateQueries({ queryKey: getGetInventoryQueryKey() });
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Purchase failed";
-      toast({ title: "Error", description: msg, variant: "destructive" });
+      const msg = err instanceof Error ? err.message : t.marketplacePage.purchaseFailed;
+      toast({ title: t.marketplacePage.error, description: msg, variant: "destructive" });
     } finally {
       setPurchasing(null);
     }
@@ -257,12 +254,12 @@ export default function Marketplace() {
       }
       queryClient.invalidateQueries({ queryKey: getGetProfileQueryKey() });
       toast({
-        title: unequip ? "Cosmetic unequipped" : `${item.name} equipped!`,
-        description: unequip ? "Removed from your profile." : "Your profile now shows this cosmetic.",
+        title: unequip ? t.marketplacePage.cosmeticUnequipped : t.marketplacePage.cosmeticEquippedTitle.replace("{item}", item.name),
+        description: unequip ? t.marketplacePage.removedFromProfile : t.marketplacePage.nowShowsCosmetic,
       });
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Failed";
-      toast({ title: "Error", description: msg, variant: "destructive" });
+      const msg = err instanceof Error ? err.message : t.marketplacePage.equipFailed;
+      toast({ title: t.marketplacePage.error, description: msg, variant: "destructive" });
     } finally {
       setEquipping(null);
     }
@@ -278,7 +275,7 @@ export default function Marketplace() {
       const res = await authFetch("/api/streak/watch-ad-coins", { method: "POST", credentials: "include" });
       if (res.ok) {
         queryClient.invalidateQueries({ queryKey: getGetProfileQueryKey() });
-        toast({ title: `+${COINS_PER_AD} Coins!`, description: "Coins added to your balance." });
+        toast({ title: t.marketplacePage.coinsAdEarned.replace("{coins}", String(COINS_PER_AD)), description: t.marketplacePage.coinsAddedToBalance });
       }
     } finally {
       setAdClaiming(false);
@@ -301,16 +298,16 @@ export default function Marketplace() {
           <div>
             <h1 className="text-3xl font-black flex items-center gap-3">
               <ShoppingBag className="h-8 w-8 text-primary" />
-              Marketplace
+              {t.marketplacePage.title}
             </h1>
             <p className="text-muted-foreground mt-1">
-              Power-ups, avatar frames, profile themes & username colors
+              {t.marketplacePage.subtitle}
             </p>
           </div>
           <div className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-amber-500/10 border border-amber-400/20 self-start sm:self-center">
             <Gem className="h-6 w-6 text-amber-400" />
             <div>
-              <p className="text-xs text-amber-300/70 leading-none">Your Balance</p>
+              <p className="text-xs text-amber-300/70 leading-none">{t.marketplacePage.yourBalance}</p>
               <p className="text-2xl font-black text-amber-300 leading-tight">{coins.toLocaleString()}</p>
             </div>
           </div>
@@ -323,9 +320,9 @@ export default function Marketplace() {
               <Tv2 className="h-5 w-5 text-amber-400" />
             </div>
             <div>
-              <p className="font-bold text-foreground text-sm">Watch an Ad → Earn Free Coins</p>
+              <p className="font-bold text-foreground text-sm">{t.marketplacePage.watchAdBanner}</p>
               <p className="text-xs text-muted-foreground">
-                +{COINS_PER_AD} coins per ad · <span className="text-amber-400 font-semibold">∞ Unlimited</span>
+                {t.marketplacePage.coinsPerAd.replace("{coins}", String(COINS_PER_AD))} <span className="text-amber-400 font-semibold">{t.marketplacePage.unlimited}</span>
               </p>
             </div>
           </div>
@@ -335,14 +332,14 @@ export default function Marketplace() {
             className="font-bold shrink-0 gap-2 bg-amber-500 hover:bg-amber-400 text-black"
           >
             <Tv2 className="h-4 w-4" />
-            Watch Ad (+{COINS_PER_AD} coins)
+            {t.marketplacePage.watchAdBtn.replace("{coins}", String(COINS_PER_AD))}
           </Button>
         </div>
 
         <div className="mt-3 flex items-start gap-2 p-3 rounded-xl bg-primary/5 border border-primary/10 text-sm text-muted-foreground">
           <Zap className="h-4 w-4 text-primary mt-0.5 shrink-0" />
           <span>
-            <strong className="text-foreground">Earn 5 coins</strong> per correct answer. Cosmetics are <strong className="text-foreground">pure flair</strong> — no pay-to-win advantage.
+            {t.marketplacePage.earnHint}
           </span>
         </div>
       </div>
@@ -350,19 +347,19 @@ export default function Marketplace() {
       <Tabs defaultValue="frames">
         <TabsList className="mb-6 bg-card border border-border flex-wrap h-auto gap-1 p-1">
           <TabsTrigger value="frames" className="gap-1.5 text-xs sm:text-sm">
-            <Frame className="h-3.5 w-3.5" /> Avatar Frames
+            <Frame className="h-3.5 w-3.5" /> {t.marketplacePage.avatarFrames}
           </TabsTrigger>
           <TabsTrigger value="backgrounds" className="gap-1.5 text-xs sm:text-sm">
-            <Palette className="h-3.5 w-3.5" /> Backgrounds
+            <Palette className="h-3.5 w-3.5" /> {t.marketplacePage.backgrounds}
           </TabsTrigger>
           <TabsTrigger value="colors" className="gap-1.5 text-xs sm:text-sm">
-            <Sparkles className="h-3.5 w-3.5" /> Name Colors
+            <Sparkles className="h-3.5 w-3.5" /> {t.marketplacePage.nameColors}
           </TabsTrigger>
           <TabsTrigger value="powerups" className="gap-1.5 text-xs sm:text-sm">
-            <Zap className="h-3.5 w-3.5" /> Power-Ups
+            <Zap className="h-3.5 w-3.5" /> {t.marketplacePage.powerUps}
           </TabsTrigger>
           <TabsTrigger value="inventory" className="gap-1.5 text-xs sm:text-sm">
-            <Package className="h-3.5 w-3.5" /> Inventory
+            <Package className="h-3.5 w-3.5" /> {t.marketplacePage.inventory}
             {inventory.length > 0 && (
               <Badge variant="secondary" className="ml-1 text-xs px-1.5 py-0 h-4">
                 {inventory.reduce((s, i) => s + i.quantity, 0)}
@@ -375,10 +372,10 @@ export default function Marketplace() {
         <TabsContent value="frames">
           <CosmeticSectionHeader
             icon="🖼️"
-            title="Avatar Frames"
-            desc="Equip a frame around your profile avatar — visible on leaderboards and your profile."
+            title={t.marketplacePage.framesTitle}
+            desc={t.marketplacePage.framesDesc}
             active={activeFrame}
-            activeLabel={activeFrame ? (FRAME_DEFS[activeFrame]?.label ?? activeFrame) : null}
+            activeLabel={activeFrame ? cosmeticLabel(t, activeFrame) : null}
             activeEmoji={activeFrame ? FRAME_DEFS[activeFrame]?.emoji : null}
           />
           {itemsLoading ? <CosmeticSkeleton /> : (
@@ -405,10 +402,10 @@ export default function Marketplace() {
         <TabsContent value="backgrounds">
           <CosmeticSectionHeader
             icon="🌅"
-            title="Profile Backgrounds"
-            desc="A subtle gradient overlay on your profile page — personalise your space."
+            title={t.marketplacePage.bgTitle}
+            desc={t.marketplacePage.bgDesc}
             active={activeBg}
-            activeLabel={activeBg ? (BG_DEFS[activeBg]?.label ?? activeBg) : null}
+            activeLabel={activeBg ? cosmeticLabel(t, activeBg) : null}
             activeEmoji={activeBg ? BG_DEFS[activeBg]?.emoji : null}
           />
           {itemsLoading ? <CosmeticSkeleton /> : (
@@ -435,10 +432,10 @@ export default function Marketplace() {
         <TabsContent value="colors">
           <CosmeticSectionHeader
             icon="✨"
-            title="Username Colors"
-            desc="Make your display name pop with a custom color — shown everywhere your name appears."
+            title={t.marketplacePage.colorsTitle}
+            desc={t.marketplacePage.colorsDesc}
             active={activeColor}
-            activeLabel={activeColor ? (COLOR_DEFS[activeColor]?.label ?? activeColor) : null}
+            activeLabel={activeColor ? cosmeticLabel(t, activeColor) : null}
             activeEmoji={activeColor ? COLOR_DEFS[activeColor]?.emoji : null}
           />
           {itemsLoading ? <CosmeticSkeleton /> : (
@@ -486,7 +483,7 @@ export default function Marketplace() {
                       <span className="text-4xl">{item.emoji}</span>
                       {owned > 0 && (
                         <Badge className="text-xs border bg-white/10 text-white border-white/20">
-                          <Check className="h-3 w-3 mr-1" /> Owned ×{owned}
+                          <Check className="h-3 w-3 mr-1" /> {t.marketplacePage.owned.replace("{count}", String(owned))}
                         </Badge>
                       )}
                     </div>
@@ -494,7 +491,7 @@ export default function Marketplace() {
                       <h3 className="font-bold text-lg leading-tight">{item.name}</h3>
                     </div>
                     <p className="text-sm text-muted-foreground flex-1">
-                      {EFFECT_LABELS[item.effect] ?? item.description}
+                      {effectLabel(t, item.effect) ?? item.description}
                     </p>
                     <div className="flex items-center justify-between mt-auto">
                       <div className="flex items-center gap-1.5">
@@ -507,7 +504,7 @@ export default function Marketplace() {
                         onClick={() => handlePurchase(item)}
                         className={cn("font-bold transition-all", canAfford && isAuthenticated ? "bg-primary text-primary-foreground hover:bg-primary/90" : "opacity-50 cursor-not-allowed")}
                       >
-                        {!isAuthenticated ? "Sign in" : !canAfford ? "Need coins" : isPurchasing ? "..." : "Buy"}
+                        {!isAuthenticated ? t.marketplacePage.signIn : !canAfford ? t.marketplacePage.needCoins : isPurchasing ? "..." : t.marketplacePage.buy}
                       </Button>
                     </div>
                   </div>
@@ -522,19 +519,19 @@ export default function Marketplace() {
           {!isAuthenticated ? (
             <div className="text-center py-20">
               <ShoppingBag className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-              <p className="text-muted-foreground mb-4">Sign in to view your inventory</p>
-              <Button onClick={() => login()}>Sign in</Button>
+              <p className="text-muted-foreground mb-4">{t.marketplacePage.signInInventory}</p>
+              <Button onClick={() => login()}>{t.marketplacePage.signIn}</Button>
             </div>
           ) : inventoryLoading ? (
             <CosmeticSkeleton />
           ) : inventory.length === 0 ? (
             <div className="text-center py-20">
               <Package className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-              <p className="text-xl font-bold mb-2">Your inventory is empty</p>
-              <p className="text-muted-foreground mb-6">Buy power-ups or cosmetics to see them here!</p>
+              <p className="text-xl font-bold mb-2">{t.marketplacePage.emptyInventoryTitle}</p>
+              <p className="text-muted-foreground mb-6">{t.marketplacePage.emptyInventoryDesc}</p>
               <div className="flex items-center justify-center gap-2 text-amber-400">
                 <Gem className="h-5 w-5" />
-                <span className="font-bold">{coins} coins available</span>
+                <span className="font-bold">{t.marketplacePage.coinsAvailable.replace("{coins}", String(coins))}</span>
               </div>
             </div>
           ) : (
@@ -548,23 +545,23 @@ export default function Marketplace() {
                     <div className="flex items-center justify-between">
                       <span className="text-4xl">{item.emoji}</span>
                       <div className="flex items-center gap-1.5">
-                        {equipped && <Badge className="bg-primary/20 text-primary border-primary/40 text-xs">Equipped</Badge>}
+                        {equipped && <Badge className="bg-primary/20 text-primary border-primary/40 text-xs">{t.marketplacePage.equippedBadge}</Badge>}
                         {item.quantity > 1 && <Badge className="bg-white/10 text-white border-white/20 text-sm font-bold">×{item.quantity}</Badge>}
                       </div>
                     </div>
                     <div>
                       <h3 className="font-bold text-lg">{item.name}</h3>
                     </div>
-                    <p className="text-sm text-muted-foreground flex-1">{EFFECT_LABELS[item.effect] ?? item.description}</p>
+                    <p className="text-sm text-muted-foreground flex-1">{effectLabel(t, item.effect) ?? item.description}</p>
                     {isCos && (
                       <div className="flex gap-2 mt-auto pt-2 border-t border-white/10">
                         {equipped ? (
                           <Button size="sm" variant="outline" className="flex-1 h-7 text-xs border-red-500/30 text-red-400 hover:bg-red-500/10" onClick={() => handleEquip(item, true)} disabled={equipping === item.id}>
-                            {equipping === item.id ? "..." : "Unequip"}
+                            {equipping === item.id ? "..." : t.marketplacePage.unequip}
                           </Button>
                         ) : (
                           <Button size="sm" className="flex-1 h-7 text-xs bg-primary text-primary-foreground hover:bg-primary/90" onClick={() => handleEquip(item)} disabled={equipping === item.id}>
-                            {equipping === item.id ? "..." : "Equip"}
+                            {equipping === item.id ? "..." : t.marketplacePage.equip}
                           </Button>
                         )}
                       </div>
@@ -572,7 +569,7 @@ export default function Marketplace() {
                     {!isCos && (
                       <div className="flex items-center gap-1 mt-auto pt-1 border-t border-white/10">
                         <AlertCircle className="h-3.5 w-3.5 text-muted-foreground" />
-                        <span className="text-xs text-muted-foreground">Used automatically during quizzes</span>
+                        <span className="text-xs text-muted-foreground">{t.marketplacePage.usedAutomatically}</span>
                       </div>
                     )}
                   </div>
@@ -590,8 +587,6 @@ export default function Marketplace() {
           onClose={() => setShowCoinAd(false)}
         />
       )}
-
-      <MonetagBanner />
     </div>
   );
 }
@@ -601,6 +596,7 @@ function CosmeticSectionHeader({ icon, title, desc, active, activeLabel, activeE
   icon: string; title: string; desc: string;
   active: string | null; activeLabel: string | null; activeEmoji: string | null | undefined;
 }) {
+  const { t } = useI18n();
   return (
     <div className="mb-5 flex flex-col sm:flex-row sm:items-center gap-3">
       <div className="flex-1">
@@ -612,7 +608,7 @@ function CosmeticSectionHeader({ icon, title, desc, active, activeLabel, activeE
       {active && (
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary/10 border border-primary/20 text-sm font-medium text-primary shrink-0">
           {activeEmoji && <span>{activeEmoji}</span>}
-          Equipped: {activeLabel}
+          {t.marketplacePage.equipped.replace("{label}", activeLabel ?? "")}
         </div>
       )}
     </div>

@@ -1,361 +1,296 @@
 import { Link } from "wouter";
-import { Play, ArrowRight, Flame, Users, HelpCircle, Globe, Trophy, Zap, Target, Star, Swords, UserPlus } from "lucide-react";
-import {
-  useListCategories, getListCategoriesQueryKey,
-  useGetLeaderboard, getGetLeaderboardQueryKey,
-} from "@workspace/api-client-react";
+import { motion, useReducedMotion } from "framer-motion";
+import { ArrowRight, ArrowUpRight, Flame, Globe2, Heart, Play, Radio, Sparkles, Swords, Target, Trophy, UserPlus, Users, Zap } from "lucide-react";
+import { getGetLeaderboardQueryKey, getListCategoriesQueryKey, useGetLeaderboard, useListCategories } from "@workspace/api-client-react";
 import { useSupabaseAuth } from "@/hooks/useSupabaseAuth";
+import { useStreak } from "@/hooks/useStreak";
+import { usePlayerLibrary } from "@/hooks/usePlayerLibrary";
+import { useI18n } from "@/lib/i18n";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { useStreak } from "@/hooks/useStreak";
-import { useI18n } from "@/lib/i18n";
-import { MonetagBanner } from "@/components/MonetagBanner";
 
-// Scrolling banner tiles — gradient backgrounds per category
-const BANNER_TILES = [
-  { label: "Science", bg: "from-cyan-900/80 to-cyan-950", accent: "#22d3ee", symbol: "⚗️" },
-  { label: "History", bg: "from-amber-900/80 to-amber-950", accent: "#f59e0b", symbol: "🏛️" },
-  { label: "Anime", bg: "from-rose-900/80 to-rose-950", accent: "#fb7185", symbol: "⚔️" },
-  { label: "Cinema", bg: "from-violet-900/80 to-violet-950", accent: "#a78bfa", symbol: "🎬" },
-  { label: "Sports", bg: "from-green-900/80 to-green-950", accent: "#4ade80", symbol: "⚽" },
-  { label: "Geography", bg: "from-sky-900/80 to-sky-950", accent: "#38bdf8", symbol: "🌍" },
-  { label: "Pop Culture", bg: "from-pink-900/80 to-pink-950", accent: "#f472b6", symbol: "🎵" },
-  { label: "Tech", bg: "from-indigo-900/80 to-indigo-950", accent: "#818cf8", symbol: "💡" },
-];
+const MILESTONE_COINS: Record<number, number> = { 7: 50, 30: 200, 100: 500 };
 
-const ALL_TILES = [...BANNER_TILES, ...BANNER_TILES];
-
-const CATEGORY_ACCENT_COLORS = [
-  "text-cyan-400 group-hover:shadow-[inset_0_0_20px_rgba(34,211,238,0.12)] hover:border-cyan-400/40",
-  "text-yellow-400 group-hover:shadow-[inset_0_0_20px_rgba(234,179,8,0.12)] hover:border-yellow-400/40",
-  "text-violet-400 group-hover:shadow-[inset_0_0_20px_rgba(167,139,250,0.12)] hover:border-violet-400/40",
-  "text-emerald-400 group-hover:shadow-[inset_0_0_20px_rgba(52,211,153,0.12)] hover:border-emerald-400/40",
-  "text-rose-400 group-hover:shadow-[inset_0_0_20px_rgba(251,113,133,0.12)] hover:border-rose-400/40",
-  "text-sky-400 group-hover:shadow-[inset_0_0_20px_rgba(56,189,248,0.12)] hover:border-sky-400/40",
-];
-
-function BannerTile({ tile }: { tile: typeof BANNER_TILES[0] }) {
+function Eyebrow({ index, children }: { index: string; children: React.ReactNode }) {
   return (
-    <div className={cn("relative w-48 h-full shrink-0 bg-gradient-to-b", tile.bg, "flex flex-col items-center justify-center gap-3 border-r border-white/5")}>
-      <div className="text-5xl select-none">{tile.symbol}</div>
-      <div className="text-center">
-        <p className="text-sm font-bold text-white/80">{tile.label}</p>
-      </div>
-      <div className="absolute inset-0 bg-gradient-to-t from-background/60 via-transparent to-background/20" />
+    <div className="flex items-center gap-3 text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground">
+      <span className="text-primary">{index}</span><span className="h-px w-8 bg-white/15" />{children}
     </div>
   );
 }
 
-const MILESTONE_COINS: Record<number, number> = { 7: 50, 30: 200, 100: 500 };
+function OrbitStage({ labels }: { labels: string[] }) {
+  const { t } = useI18n();
+  const reduceMotion = useReducedMotion();
+  const positions = ["left-[5%] top-[19%]", "right-[2%] top-[29%]", "left-[2%] bottom-[24%]", "right-[8%] bottom-[13%]"];
+
+  return (
+    <div className="relative mx-auto aspect-square w-full max-w-[560px]" aria-hidden="true">
+      <div className="absolute inset-[5%] rounded-full border border-white/8" />
+      <motion.div
+        className="absolute inset-[18%] rounded-full border border-dashed border-primary/25"
+        animate={reduceMotion ? undefined : { rotate: 360 }}
+        transition={{ duration: 36, repeat: Infinity, ease: "linear" }}
+      />
+      <motion.div
+        className="absolute inset-[30%] rounded-full border border-white/10"
+        animate={reduceMotion ? undefined : { rotate: -360 }}
+        transition={{ duration: 24, repeat: Infinity, ease: "linear" }}
+      >
+        <span className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rounded-full bg-secondary" />
+      </motion.div>
+
+      <div className="absolute inset-[28%] grid place-items-center rounded-full bg-primary text-primary-foreground shadow-[0_0_80px_hsl(75_100%_68%/0.12)]">
+        <motion.span
+          className="text-[clamp(4rem,9vw,7rem)] font-extrabold leading-none tracking-[-0.08em]"
+          initial={reduceMotion ? false : { opacity: 0, scale: 0.8, rotate: -8 }}
+          animate={{ opacity: 1, scale: 1, rotate: 0 }}
+          transition={{ duration: 0.8, delay: 0.45, ease: [0.16, 1, 0.3, 1] }}
+        >
+          Q
+        </motion.span>
+        <span className="absolute bottom-[20%] text-[8px] font-extrabold uppercase tracking-[0.28em]">{t.home.playLearnRise}</span>
+      </div>
+
+      {positions.map((position, index) => (
+        <motion.div
+          key={position}
+          className={cn("absolute max-w-[42%] border border-white/12 bg-background/88 px-3 py-2 backdrop-blur-md", position)}
+          initial={reduceMotion ? false : { opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.65, delay: 0.6 + index * 0.1, ease: [0.16, 1, 0.3, 1] }}
+        >
+          <span className="mr-2 text-[9px] text-primary rtl:ml-2 rtl:mr-0">0{index + 1}</span>
+          <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-foreground">{labels[index] || t.home.orbitDefault}</span>
+        </motion.div>
+      ))}
+
+      <div className="absolute left-1/2 top-0 flex -translate-x-1/2 items-center gap-2 text-[9px] font-bold uppercase tracking-[0.2em] text-muted-foreground">
+        <Radio className="h-3 w-3 text-primary" /> {t.home.liveFeed}
+      </div>
+    </div>
+  );
+}
 
 export default function Home() {
+  const reduceMotion = useReducedMotion();
   const { isAuthenticated } = useSupabaseAuth();
   const { data: streak } = useStreak(isAuthenticated);
-  const { t } = useI18n();
-
-  const { data: categories, isLoading: catsLoading } = useListCategories(
-    undefined,
-    { query: { queryKey: getListCategoriesQueryKey() } }
-  );
-
+  const { t, lang } = useI18n();
+  const { data: playerLibrary, isLoading: libraryLoading } = usePlayerLibrary(isAuthenticated);
+  const { data: categories, isLoading: catsLoading } = useListCategories(undefined, { query: { queryKey: getListCategoriesQueryKey() } });
   const { data: leaderboard, isLoading: lbLoading } = useGetLeaderboard(
     { period: "all_time" },
     { query: { queryKey: getGetLeaderboardQueryKey({ period: "all_time" }) } }
   );
 
-  const rootCategories = categories?.filter(c => !c.parentId).slice(0, 6) || [];
+  const allRootCategories = categories?.filter(category => !category.parentId) || [];
+  const rootCategories = allRootCategories.slice(0, 6);
+  const favoriteIdSet = new Set(playerLibrary?.favoriteCategoryIds ?? []);
+  const favoriteCategories = allRootCategories.filter(category => favoriteIdSet.has(category.id)).slice(0, 4);
+  const continuePlaying = playerLibrary?.continuePlaying ?? null;
+  const continueName = continuePlaying ? (lang === "ar" ? continuePlaying.nameAr : continuePlaying.name) : "";
+  const continueProgress = continuePlaying?.activeSession
+    ? Math.round(((continuePlaying.activeSession.currentQuestionNumber - 1) / continuePlaying.activeSession.totalQuestions) * 100)
+    : continuePlaying?.totalLevels
+      ? Math.round((continuePlaying.completedLevels / continuePlaying.totalLevels) * 100)
+      : 0;
   const topPlayers = leaderboard?.slice(0, 3) || [];
+  const orbitLabels = rootCategories.slice(0, 4).map(category => category.name);
+  const reveal = {
+    initial: reduceMotion ? false : { opacity: 0, y: 28 },
+    whileInView: { opacity: 1, y: 0 },
+    viewport: { once: true, amount: 0.2 },
+    transition: { duration: 0.7, ease: [0.16, 1, 0.3, 1] as [number, number, number, number] },
+  };
 
   return (
-    <div className="flex-1 w-full overflow-y-auto">
-      <div className="max-w-7xl mx-auto p-4 md:p-6 space-y-8 pb-8">
-
-        {/* ── Hero ── */}
-        <section className="relative rounded-2xl overflow-hidden min-h-[420px] flex items-center justify-center border border-white/8 shadow-2xl">
-
-          {/* Scrolling background banner */}
-          <div className="absolute inset-0 z-0 flex bg-card overflow-hidden">
-            <div className="flex animate-banner-scroll" style={{ width: "max-content" }}>
-              {ALL_TILES.map((tile, i) => (
-                <BannerTile key={i} tile={tile} />
-              ))}
-            </div>
-            <div className="absolute inset-0 bg-gradient-to-b from-background/30 via-background/65 to-background backdrop-blur-[2px]" />
-            <div className="absolute inset-0 bg-gradient-to-r from-background/40 via-transparent to-background/40" />
-          </div>
-
-          {/* Hero content */}
-          <div className="relative z-10 text-center max-w-2xl mx-auto px-4 space-y-5 bg-card/40 backdrop-blur-md border border-white/10 p-8 md:p-12 rounded-3xl shadow-[0_8px_32px_rgba(0,0,0,0.4)] m-4">
-            <h2 className="text-4xl md:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-secondary to-primary leading-tight drop-shadow-lg">
+    <div className="flex-1 overflow-hidden">
+      <section className="editorial-grid relative border-b border-white/8">
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-background/20 to-background pointer-events-none" />
+        <div className="relative mx-auto grid min-h-[calc(100vh-5rem)] max-w-[1440px] items-center gap-10 px-5 py-16 sm:px-8 lg:grid-cols-[0.86fr_1.14fr] lg:px-12 lg:py-12 xl:px-16">
+          <motion.div
+            className="relative z-10 max-w-2xl"
+            initial={reduceMotion ? false : "hidden"}
+            animate="show"
+            variants={{ hidden: {}, show: { transition: { staggerChildren: 0.12 } } }}
+          >
+            <motion.div variants={{ hidden: { opacity: 0, y: 14 }, show: { opacity: 1, y: 0, transition: { duration: 0.6 } } }}>
+              <Eyebrow index="01">{t.home.eyebrow01}</Eyebrow>
+            </motion.div>
+            <motion.h1
+              variants={{ hidden: { opacity: 0, y: 24 }, show: { opacity: 1, y: 0, transition: { duration: 0.8, ease: [0.16, 1, 0.3, 1] } } }}
+              className="mt-8 text-[clamp(3.6rem,7.4vw,7.8rem)] font-extrabold leading-[0.86] tracking-[-0.075em]"
+            >
               {t.home.hero.title}
-            </h2>
-            <p className="text-base md:text-lg text-muted-foreground max-w-lg mx-auto leading-relaxed">
+            </motion.h1>
+            <motion.p
+              variants={{ hidden: { opacity: 0, y: 18 }, show: { opacity: 1, y: 0, transition: { duration: 0.7 } } }}
+              className="mt-8 max-w-xl text-sm leading-7 text-muted-foreground sm:text-base"
+            >
               {t.home.hero.subtitle}
-            </p>
-            <div className="flex flex-col sm:flex-row gap-3 justify-center pt-2 flex-wrap">
-              <Link href="/categories">
-                <button className="flex items-center justify-center gap-2 bg-gradient-to-r from-secondary to-primary text-white px-7 py-3.5 rounded-xl font-bold text-sm shadow-[0_8px_30px_rgba(99,102,241,0.4)] hover:shadow-[0_8px_30px_rgba(99,102,241,0.6)] transition-all active:scale-95 w-full sm:w-auto">
-                  <Play className="h-4 w-4 fill-current" />
-                  {t.home.hero.quickPlay}
-                </button>
+            </motion.p>
+            <motion.div variants={{ hidden: { opacity: 0, y: 18 }, show: { opacity: 1, y: 0, transition: { duration: 0.7 } } }} className="mt-9 flex flex-col gap-3 sm:flex-row">
+              <Link href={continuePlaying?.href ?? "/categories"} className="focus-ring group inline-flex min-h-14 items-center justify-between gap-8 bg-primary px-6 text-sm font-extrabold text-primary-foreground transition-transform duration-300 hover:-translate-y-1 sm:min-w-52">
+                <span className="flex items-center gap-3"><Play className="h-4 w-4 fill-current" />{continuePlaying ? t.home.library.title : t.home.hero.quickPlay}</span>
+                <ArrowUpRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-1 group-hover:-translate-y-1 rtl:group-hover:-translate-x-1" />
               </Link>
-              <Link href="/arena">
-                <button className="flex items-center justify-center gap-2 bg-cyan-500/15 border border-cyan-500/40 text-cyan-300 px-7 py-3.5 rounded-xl font-bold text-sm hover:bg-cyan-500/25 hover:border-cyan-400/60 transition-all active:scale-95 backdrop-blur-md w-full sm:w-auto shadow-[0_4px_20px_rgba(34,211,238,0.15)]">
-                  <Swords className="h-4 w-4" />
-                  {t.home.hero.onlineGame}
-                </button>
+              <Link href="/arena" className="focus-ring group inline-flex min-h-14 items-center justify-between gap-8 border border-white/18 px-6 text-sm font-bold transition-colors duration-300 hover:border-white/40 sm:min-w-52">
+                <span className="flex items-center gap-3"><Swords className="h-4 w-4 text-secondary" />{t.home.hero.onlineGame}</span>
+                <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-1 rtl:rotate-180 rtl:group-hover:-translate-x-1" />
               </Link>
-              <Link href="/arena">
-                <button className="flex items-center justify-center gap-2 bg-card/80 border border-white/15 text-foreground px-7 py-3.5 rounded-xl font-bold text-sm hover:bg-card transition-all active:scale-95 backdrop-blur-md w-full sm:w-auto">
-                  <UserPlus className="h-4 w-4" />
-                  {t.home.hero.friendsGame}
-                </button>
-              </Link>
-            </div>
+            </motion.div>
+          </motion.div>
+
+          <OrbitStage labels={orbitLabels} />
+
+          <div className="absolute bottom-6 left-5 right-5 hidden items-center justify-between text-[9px] font-bold uppercase tracking-[0.2em] text-muted-foreground/65 sm:flex lg:left-12 lg:right-12 xl:left-16 xl:right-16">
+            <span>{t.home.arabicEnglish}</span><span>{t.home.soloLiveFriends}</span><span>{t.home.season01}</span>
           </div>
-        </section>
-
-        {/* ── Live Stats Strip ── */}
-        <div className="grid grid-cols-3 gap-3 md:gap-4">
-          {[
-            { icon: Users, label: t.home.stats.playersOnline, value: "2,400+", color: "text-primary" },
-            { icon: HelpCircle, label: t.home.stats.questionsToday, value: "18,900+", color: "text-secondary" },
-            { icon: Globe, label: t.home.stats.countries, value: "80+", color: "text-yellow-400" },
-          ].map(({ icon: Icon, label, value, color }) => (
-            <div key={label} className="rounded-xl border border-white/8 bg-card/60 backdrop-blur-sm p-4 flex flex-col items-center text-center gap-1 hover:border-white/15 transition-colors">
-              <Icon className={cn("h-5 w-5", color)} />
-              <p className="text-xl md:text-2xl font-black text-foreground">{value}</p>
-              <p className="text-xs text-muted-foreground">{label}</p>
-            </div>
-          ))}
         </div>
+      </section>
 
-        {/* ── Bento Grid: Categories + Sidebar ── */}
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
-
-          {/* Categories — 8 cols */}
-          <section className="md:col-span-8 space-y-5">
-            <div className="flex items-center justify-between">
-              <h3 className="text-2xl font-bold text-foreground">{t.home.categories.title}</h3>
-              <Link href="/categories" className="flex items-center gap-1 text-sm font-medium text-primary hover:text-primary/80 transition-colors">
-                {t.home.categories.viewAll} <ArrowRight className="h-4 w-4 rtl:rotate-180" />
-              </Link>
-            </div>
-
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-              {catsLoading
-                ? Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-[130px] rounded-xl" />)
-                : rootCategories.map((cat, i) => {
-                    const accentClass = CATEGORY_ACCENT_COLORS[i % CATEGORY_ACCENT_COLORS.length];
-                    return (
-                      <Link key={cat.id} href={`/worlds/${cat.id}`}>
-                        <div className={cn(
-                          "group relative overflow-hidden rounded-xl border border-white/8 bg-card/80 p-6 cursor-pointer transition-all duration-200 hover:border-opacity-50",
-                          accentClass
-                        )}>
-                          <div className="absolute top-0 right-0 w-28 h-28 rounded-full blur-2xl -mr-12 -mt-12 bg-current opacity-10 group-hover:opacity-20 transition-opacity" />
-                          <div className="relative z-10">
-                            <div className="text-3xl mb-3 select-none">{cat.icon || "📚"}</div>
-                            <h4 className="font-bold text-base text-foreground">{cat.name}</h4>
-                          </div>
-                        </div>
-                      </Link>
-                    );
-                  })}
-            </div>
-          </section>
-
-          {/* Right sidebar — 4 cols */}
-          <aside className="md:col-span-4 space-y-5">
-
-            {/* Daily Streak card */}
-            <div className="relative overflow-hidden rounded-2xl border border-orange-500/25 bg-gradient-to-br from-card to-orange-950/20 p-6 shadow-lg">
-              <div className="absolute -right-10 -top-10 w-40 h-40 bg-orange-500/10 blur-3xl rounded-full" />
-
-              <div className="flex items-center justify-between mb-1 relative z-10">
-                <div className="flex items-center gap-2">
-                  <Flame className="h-6 w-6 text-orange-400" />
-                  <h3 className="font-bold text-base text-foreground">{t.home.streak.title}</h3>
-                </div>
-                {isAuthenticated && streak && streak.currentStreak > 0 && (
-                  <span className="text-xs font-bold text-orange-400 bg-orange-400/10 border border-orange-400/20 px-2 py-0.5 rounded-full">
-                    🔥 {t.home.streak.day} {streak.currentStreak}
-                  </span>
-                )}
-              </div>
-
-              {isAuthenticated && streak ? (
-                <>
-                  <div className="flex items-end gap-2 my-3 relative z-10">
-                    <span className="text-5xl font-black text-orange-400 leading-none">
-                      {streak.currentStreak}
-                    </span>
-                    <span className="text-sm text-muted-foreground mb-1">{t.home.streak.dayStreak}</span>
+      {isAuthenticated && (
+        <section className="border-b border-white/8 bg-card/20">
+          <div className="mx-auto grid max-w-[1440px] lg:grid-cols-[1.35fr_0.65fr]">
+            <div className="editorial-grid border-b border-white/8 px-5 py-10 sm:px-8 lg:border-b-0 lg:border-r lg:px-12 lg:py-12 rtl:lg:border-l rtl:lg:border-r-0 xl:px-16">
+              {libraryLoading ? (
+                <div className="space-y-5"><Skeleton className="h-3 w-36 rounded-none" /><Skeleton className="h-12 w-72 max-w-full rounded-none" /><Skeleton className="h-px w-full rounded-none" /></div>
+              ) : continuePlaying ? (
+                <motion.div initial={reduceMotion ? false : { opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}>
+                  <div className="flex items-center justify-between gap-4">
+                    <Eyebrow index="NOW">{t.home.library.resumeRoute}</Eyebrow>
+                    <span className="text-2xl" aria-hidden="true">{continuePlaying.icon}</span>
                   </div>
-
-                  {streak.nextMilestone && (
-                    <div className="bg-background/40 rounded-lg p-3 mb-4 relative z-10">
-                      <div className="flex justify-between text-xs font-medium mb-2">
-                        <span className="text-muted-foreground">{t.home.streak.nextMilestone}</span>
-                        <span className="text-orange-400">
-                          {t.home.streak.dayLabel} {streak.nextMilestone} · +{MILESTONE_COINS[streak.nextMilestone] ?? "?"} {t.home.streak.coins}
-                        </span>
-                      </div>
-                      <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-gradient-to-r from-orange-500 to-amber-400 rounded-full transition-all duration-500"
-                          style={{ width: `${Math.min(100, (streak.currentStreak / streak.nextMilestone) * 100)}%` }}
-                        />
-                      </div>
-                      <p className="text-[10px] text-muted-foreground mt-1.5">
-                        {streak.nextMilestone - streak.currentStreak} {streak.nextMilestone - streak.currentStreak !== 1 ? t.home.streak.daysToGo : t.home.streak.dayToGo}
+                  <div className="mt-7 flex flex-col justify-between gap-7 sm:flex-row sm:items-end">
+                    <div>
+                      <h2 className="text-[clamp(2.3rem,5vw,4.7rem)] font-extrabold leading-[0.9] tracking-[-0.065em]">{continueName}</h2>
+                      <p className="mt-4 text-[10px] font-bold uppercase tracking-[0.17em] text-muted-foreground">
+                        {continuePlaying.activeSession
+                          ? `${t.home.library.checkpoint} ${String(continuePlaying.activeSession.levelNumber).padStart(2, "0")} / ${continuePlaying.activeSession.currentQuestionNumber} of ${continuePlaying.activeSession.totalQuestions} ${t.home.library.questions}`
+                          : continuePlaying.state === "complete"
+                            ? t.home.library.reviewWorld
+                            : `${t.home.library.checkpoint} ${String(continuePlaying.nextLevel).padStart(2, "0")} / ${continuePlaying.completedLevels} of ${continuePlaying.totalLevels} ${t.home.library.complete}`}
                       </p>
                     </div>
-                  )}
-
-                  {streak.checkedInToday ? (
-                    <div className="relative z-10 flex items-center gap-2 py-2.5 px-3 rounded-xl bg-green-500/10 border border-green-500/20 text-sm font-semibold text-green-400">
-                      <Target className="h-4 w-4" />
-                      {t.home.streak.checkedIn}
-                    </div>
-                  ) : (
-                    <Link href="/categories">
-                      <button className="w-full relative z-10 bg-orange-500/15 border border-orange-500/30 text-orange-400 rounded-xl py-2.5 text-sm font-semibold hover:bg-orange-500/25 transition-colors">
-                        {t.home.streak.playToKeep}
-                      </button>
+                    <Link href={continuePlaying.href} className="focus-ring group inline-flex min-h-12 shrink-0 items-center justify-between gap-8 border border-primary px-5 text-[10px] font-bold uppercase tracking-[0.16em] text-primary transition-colors hover:bg-primary hover:text-primary-foreground">
+                      {continuePlaying.state === "resume_quiz" ? t.home.library.resumeQuiz : continuePlaying.state === "complete" ? t.home.library.reviewWorld : t.home.library.continueWorld}
+                      <ArrowUpRight className="h-4 w-4 transition-transform group-hover:translate-x-1 group-hover:-translate-y-1 rtl:group-hover:-translate-x-1" />
                     </Link>
-                  )}
-
-                  {streak.longestStreak > 0 && (
-                    <p className="text-[11px] text-muted-foreground mt-3 relative z-10 flex items-center gap-1">
-                      <Trophy className="h-3 w-3" />
-                      {t.home.streak.best} {streak.longestStreak} {t.home.streak.days}
-                    </p>
-                  )}
-                </>
-              ) : (
-                <>
-                  <p className="text-sm text-muted-foreground my-3 relative z-10">
-                    {t.home.streak.playDaily}
-                  </p>
-                  <div className="flex gap-2 text-xs text-muted-foreground mb-4 relative z-10">
-                    {[{ d: 7, c: 50 }, { d: 30, c: 200 }, { d: 100, c: 500 }].map(({ d, c }) => (
-                      <span key={d} className="flex items-center gap-1 bg-orange-500/10 border border-orange-500/20 px-2 py-1 rounded-lg">
-                        🔥{d} <span className="text-amber-400 font-bold">+{c}</span>
-                      </span>
-                    ))}
                   </div>
-                  <Link href="/categories">
-                    <button className="w-full relative z-10 border border-orange-500/30 text-orange-400 rounded-xl py-2.5 text-sm font-semibold hover:bg-orange-500/10 transition-colors">
-                      {t.home.streak.startStreak}
-                    </button>
-                  </Link>
-                </>
+                  <div className="mt-8">
+                    <div className="flex justify-between text-[8px] font-bold uppercase tracking-[0.18em] text-muted-foreground"><span>{t.home.library.title}</span><span className="text-primary">{continueProgress}%</span></div>
+                    <div className="mt-3 h-px bg-white/12"><motion.div initial={reduceMotion ? false : { scaleX: 0 }} animate={{ scaleX: continueProgress / 100 }} transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }} className="h-px bg-primary" style={{ transformOrigin: lang === "ar" ? "right" : "left" }} /></div>
+                  </div>
+                </motion.div>
+              ) : (
+                <div className="max-w-xl">
+                  <Eyebrow index="NOW">{t.home.library.title}</Eyebrow>
+                  <h2 className="mt-7 text-3xl font-extrabold tracking-[-0.05em]">{t.home.library.noJourney}</h2>
+                  <Link href="/categories" className="focus-ring mt-7 inline-flex items-center gap-3 border-b border-primary pb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-primary">{t.home.library.explore}<ArrowRight className="h-4 w-4 rtl:rotate-180" /></Link>
+                </div>
               )}
             </div>
 
-            {/* Top Players card */}
-            <div className="rounded-2xl border border-white/8 bg-card/80 p-6">
-              <div className="flex items-center justify-between mb-5">
-                <h3 className="font-bold text-lg text-foreground">{t.home.topPlayers.title}</h3>
-                <Trophy className="h-5 w-5 text-muted-foreground" />
-              </div>
-
-              <div className="space-y-3">
-                {lbLoading
-                  ? Array.from({ length: 3 }).map((_, i) => (
-                      <div key={i} className="flex items-center gap-3">
-                        <Skeleton className="h-8 w-8 rounded-full" />
-                        <Skeleton className="h-4 flex-1" />
-                        <Skeleton className="h-4 w-16" />
-                      </div>
-                    ))
-                  : topPlayers.length === 0
-                    ? (
-                      <div className="py-8 text-center">
-                        <Star className="h-8 w-8 text-muted-foreground/30 mx-auto mb-2" />
-                        <p className="text-sm text-muted-foreground">{t.home.topPlayers.noPlayers}</p>
-                        <p className="text-xs text-muted-foreground/60 mt-0.5">{t.home.topPlayers.beFirst}</p>
-                      </div>
-                    )
-                    : topPlayers.map((player, idx) => {
-                        const medals = ["🥇", "🥈", "🥉"];
-                        return (
-                          <div
-                            key={player.userId}
-                            className={cn(
-                              "flex items-center gap-3 p-3 rounded-xl transition-colors",
-                              idx === 0 ? "bg-yellow-500/5 border border-yellow-500/20" : "bg-background/30"
-                            )}
-                          >
-                            <span className="text-lg w-7 text-center select-none">{medals[idx]}</span>
-                            <div className="h-9 w-9 rounded-full bg-secondary/10 border border-secondary/20 flex items-center justify-center shrink-0">
-                              <span className="text-xs font-bold text-secondary">{(player.username || "?")[0].toUpperCase()}</span>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-semibold text-foreground truncate">{player.username || t.home.topPlayers.anonymous}</p>
-                              <p className={cn("text-xs", idx === 0 ? "text-yellow-400" : "text-muted-foreground")}>
-                                {player.totalScore.toLocaleString()} {t.home.topPlayers.pts}
-                              </p>
-                            </div>
-                            {idx === 0 && <Zap className="h-4 w-4 text-yellow-400 shrink-0" />}
-                          </div>
-                        );
-                      })}
-              </div>
-
-              <Link href="/leaderboard">
-                <button className="w-full mt-5 text-sm font-semibold text-primary hover:text-primary/80 transition-colors">
-                  {t.home.topPlayers.viewFull}
-                </button>
-              </Link>
-            </div>
-          </aside>
-        </div>
-
-        <MonetagBanner />
-
-        {/* ── How to Play ── */}
-        <section className="rounded-2xl border border-white/8 bg-card/40 p-8">
-          <div className="text-center mb-8">
-            <h3 className="text-2xl font-bold text-foreground">{t.home.howToPlay.title}</h3>
-            <p className="text-muted-foreground mt-1 text-sm">{t.home.howToPlay.subtitle}</p>
-          </div>
-          <div className="grid md:grid-cols-3 gap-8">
-            {[
-              {
-                step: "01",
-                title: t.home.howToPlay.step1.title,
-                desc: t.home.howToPlay.step1.desc,
-                color: "text-primary border-primary/20 bg-primary/10",
-              },
-              {
-                step: "02",
-                title: t.home.howToPlay.step2.title,
-                desc: t.home.howToPlay.step2.desc,
-                color: "text-secondary border-secondary/20 bg-secondary/10",
-              },
-              {
-                step: "03",
-                title: t.home.howToPlay.step3.title,
-                desc: t.home.howToPlay.step3.desc,
-                color: "text-yellow-400 border-yellow-400/20 bg-yellow-400/10",
-              },
-            ].map(({ step, title, desc, color }) => (
-              <div key={step} className="flex flex-col items-center text-center gap-4">
-                <div className={cn("h-14 w-14 rounded-full border-2 flex items-center justify-center text-lg font-black", color)}>
-                  {step}
+            <aside className="px-5 py-10 sm:px-8 lg:px-9 lg:py-12">
+              <div className="flex items-center justify-between gap-4"><Eyebrow index="SAVE">{t.home.library.favorites}</Eyebrow><Heart className="h-4 w-4 text-primary" /></div>
+              {libraryLoading ? (
+                <div className="mt-6 space-y-3">{Array.from({ length: 3 }).map((_, index) => <Skeleton key={index} className="h-12 rounded-none" />)}</div>
+              ) : favoriteCategories.length > 0 ? (
+                <div className="mt-5 border-t border-white/10">
+                  {favoriteCategories.map(category => (
+                    <Link key={category.id} href={`/worlds/${category.id}`} className="focus-ring group flex min-h-14 items-center justify-between gap-3 border-b border-white/8 py-3 text-sm font-extrabold transition-colors hover:text-primary">
+                      <span className="min-w-0 truncate"><span className="mr-3 text-base rtl:ml-3 rtl:mr-0" aria-hidden="true">{category.icon}</span>{lang === "ar" ? category.nameAr : category.name}</span>
+                      <ArrowRight className="h-3.5 w-3.5 shrink-0 transition-transform group-hover:translate-x-1 rtl:rotate-180 rtl:group-hover:-translate-x-1" />
+                    </Link>
+                  ))}
+                  <Link href="/categories" className="focus-ring mt-5 inline-flex items-center gap-2 text-[9px] font-bold uppercase tracking-[0.16em] text-primary">{t.home.library.viewAll}<ArrowRight className="h-3.5 w-3.5 rtl:rotate-180" /></Link>
                 </div>
-                <div>
-                  <h4 className="font-bold text-base text-foreground">{title}</h4>
+              ) : (
+                <div className="mt-7">
+                  <p className="text-sm leading-7 text-muted-foreground">{t.home.library.noFavorites}</p>
+                  <Link href="/categories" className="focus-ring mt-6 inline-flex items-center gap-2 border-b border-primary pb-2 text-[9px] font-bold uppercase tracking-[0.16em] text-primary">{t.home.library.explore}<ArrowRight className="h-3.5 w-3.5 rtl:rotate-180" /></Link>
                 </div>
-                <p className="text-sm text-muted-foreground leading-relaxed max-w-xs">{desc}</p>
-              </div>
-            ))}
+              )}
+            </aside>
           </div>
         </section>
+      )}
 
-      </div>
+      <section className="border-b border-white/8">
+        <div className="mx-auto grid max-w-[1440px] grid-cols-1 md:grid-cols-3">
+          {[
+            { index: "01", icon: Play, title: t.home.hero.quickPlay, copy: t.home.howToPlay.step1.desc, href: "/categories" },
+            { index: "02", icon: Swords, title: t.home.hero.onlineGame, copy: t.arena.subtitle, href: "/arena" },
+            { index: "03", icon: UserPlus, title: t.home.hero.friendsGame, copy: t.home.howToPlay.step3.desc, href: "/arena" },
+          ].map(({ index, icon: Icon, title, copy, href }) => (
+            <Link key={index} href={href} className="focus-ring group relative min-h-56 border-b border-white/8 p-7 transition-colors duration-500 hover:bg-primary hover:text-primary-foreground md:border-b-0 md:border-r last:md:border-r-0 rtl:md:border-l rtl:md:border-r-0 last:rtl:md:border-l-0 sm:p-9">
+              <div className="flex items-start justify-between"><span className="text-[10px] font-bold tracking-[0.2em] text-muted-foreground group-hover:text-primary-foreground/60">{t.home.modeLabel.replace("{n}", index)}</span><Icon className="h-5 w-5 text-primary transition-transform duration-500 group-hover:rotate-6 group-hover:text-primary-foreground" /></div>
+              <h2 className="mt-12 text-2xl font-extrabold tracking-[-0.04em]">{title}</h2>
+              <p className="mt-3 max-w-sm text-xs leading-6 text-muted-foreground group-hover:text-primary-foreground/70">{copy}</p>
+              <ArrowUpRight className="absolute bottom-8 right-8 h-5 w-5 opacity-0 transition-all duration-300 group-hover:-translate-y-1 group-hover:translate-x-1 group-hover:opacity-100 rtl:left-8 rtl:right-auto rtl:group-hover:-translate-x-1" />
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      <motion.section {...reveal} className="mx-auto max-w-[1440px] px-5 py-20 sm:px-8 lg:px-12 lg:py-28 xl:px-16">
+        <div className="flex flex-col justify-between gap-6 border-b border-white/10 pb-7 sm:flex-row sm:items-end">
+          <div><Eyebrow index="02">{t.home.exploreField}</Eyebrow><h2 className="mt-5 text-4xl font-extrabold tracking-[-0.055em] sm:text-5xl">{t.home.categories.title}</h2></div>
+          <Link href="/categories" className="focus-ring group flex items-center gap-3 text-[10px] font-bold uppercase tracking-[0.18em] text-primary">{t.home.categories.viewAll}<ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1 rtl:rotate-180 rtl:group-hover:-translate-x-1" /></Link>
+        </div>
+
+        <div className="mt-2">
+          {catsLoading ? Array.from({ length: 6 }).map((_, index) => <Skeleton key={index} className="my-2 h-20 rounded-none" />) : rootCategories.map((category, index) => (
+            <Link key={category.id} href={`/worlds/${category.id}`} className="focus-ring group grid grid-cols-[3rem_1fr_auto] items-center gap-3 border-b border-white/8 py-6 transition-colors hover:text-primary sm:grid-cols-[5rem_1fr_auto] sm:py-8">
+              <span className="text-[10px] font-bold tabular-nums tracking-[0.2em] text-muted-foreground">{String(index + 1).padStart(2, "0")}</span>
+              <div><h3 className="text-xl font-extrabold tracking-[-0.035em] sm:text-3xl">{category.name}</h3><span className="mt-2 block text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{category.questionCount ? t.home.questionsCount.replace("{count}", String(category.questionCount)) : t.home.openField}</span></div>
+              <span className="grid h-11 w-11 place-items-center border border-white/12 transition-all duration-300 group-hover:rotate-45 group-hover:border-primary group-hover:bg-primary group-hover:text-primary-foreground"><ArrowUpRight className="h-4 w-4 transition-transform duration-300 group-hover:-rotate-45" /></span>
+            </Link>
+          ))}
+        </div>
+      </motion.section>
+
+      <section className="border-y border-white/8 bg-card/35">
+        <div className="mx-auto grid max-w-[1440px] grid-cols-3 divide-x divide-white/8 rtl:divide-x-reverse">
+          {[
+            { icon: Users, value: "2,400+", label: t.home.stats.playersOnline },
+            { icon: Zap, value: "18,900+", label: t.home.stats.questionsToday },
+            { icon: Globe2, value: "80+", label: t.home.stats.countries },
+          ].map(({ icon: Icon, value, label }) => (
+            <div key={label} className="px-3 py-9 text-center sm:py-12"><Icon className="mx-auto mb-4 h-4 w-4 text-primary" /><p className="text-xl font-extrabold tracking-[-0.04em] sm:text-3xl">{value}</p><p className="mt-2 text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground sm:text-[10px]">{label}</p></div>
+          ))}
+        </div>
+      </section>
+
+      <motion.section {...reveal} className="mx-auto grid max-w-[1440px] gap-16 px-5 py-20 sm:px-8 lg:grid-cols-2 lg:px-12 lg:py-28 xl:px-16">
+        <div>
+          <Eyebrow index="03">{t.home.consistencyCompounds}</Eyebrow>
+          <div className="mt-8 flex items-end gap-5"><span className="text-[clamp(5rem,11vw,9rem)] font-extrabold leading-none tracking-[-0.08em] text-secondary">{streak?.currentStreak ?? 0}</span><div className="pb-4"><Flame className="mb-3 h-6 w-6 text-secondary" /><p className="max-w-40 text-sm font-bold">{t.home.streak.dayStreak}</p></div></div>
+          <p className="mt-7 max-w-lg text-sm leading-7 text-muted-foreground">{t.home.streak.playDaily}</p>
+          {streak?.nextMilestone && <div className="mt-8"><div className="flex justify-between text-[10px] font-bold uppercase tracking-[0.14em]"><span>{t.home.streak.nextMilestone}</span><span className="text-secondary">{streak.nextMilestone} / +{MILESTONE_COINS[streak.nextMilestone] ?? "?"}</span></div><div className="mt-3 h-px bg-white/12"><div className="h-px bg-secondary" style={{ width: `${Math.min(100, (streak.currentStreak / streak.nextMilestone) * 100)}%` }} /></div></div>}
+          <Link href="/categories" className="focus-ring mt-9 inline-flex items-center gap-3 border-b border-primary pb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-primary"><Target className="h-4 w-4" />{streak?.checkedInToday ? t.home.streak.checkedIn : t.home.streak.playToKeep}</Link>
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between"><Eyebrow index="04">{t.home.globalRanking}</Eyebrow><Trophy className="h-5 w-5 text-primary" /></div>
+          <div className="mt-8 border-t border-white/10">
+            {lbLoading ? Array.from({ length: 3 }).map((_, index) => <Skeleton key={index} className="my-2 h-20 rounded-none" />) : topPlayers.length === 0 ? <div className="py-16 text-sm text-muted-foreground">{t.home.topPlayers.noPlayers} — {t.home.topPlayers.beFirst}</div> : topPlayers.map((player, index) => (
+              <div key={player.userId} className="grid grid-cols-[2rem_1fr_auto] items-center gap-4 border-b border-white/8 py-6"><span className={cn("text-xs font-bold", index === 0 ? "text-primary" : "text-muted-foreground")}>0{index + 1}</span><div><p className="text-base font-extrabold">{player.username || t.home.topPlayers.anonymous}</p><p className="mt-1 text-[9px] font-bold uppercase tracking-[0.15em] text-muted-foreground">{t.home.globalPlayer}</p></div><span className="text-xs font-bold tabular-nums">{player.totalScore.toLocaleString()} {t.home.topPlayers.pts}</span></div>
+            ))}
+          </div>
+          <Link href="/leaderboard" className="focus-ring mt-7 inline-flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-primary">{t.home.topPlayers.viewFull}<ArrowRight className="h-4 w-4 rtl:rotate-180" /></Link>
+        </div>
+      </motion.section>
+
+      <motion.section {...reveal} className="mx-auto max-w-[1440px] px-5 py-20 sm:px-8 lg:px-12 lg:py-28 xl:px-16">
+        <Eyebrow index="05">{t.home.howToPlay.title}</Eyebrow>
+        <div className="mt-9 grid gap-10 md:grid-cols-3">
+          {[t.home.howToPlay.step1, t.home.howToPlay.step2, t.home.howToPlay.step3].map((step, index) => (
+            <div key={step.title} className="relative border-t border-white/12 pt-7"><span className="text-[10px] font-bold text-primary">0{index + 1}</span><h3 className="mt-10 text-2xl font-extrabold tracking-[-0.04em]">{step.title}</h3><p className="mt-4 text-sm leading-7 text-muted-foreground">{step.desc}</p>{index < 2 && <Sparkles className="absolute right-0 top-6 h-3.5 w-3.5 text-muted-foreground/30 rtl:left-0 rtl:right-auto" />}</div>
+          ))}
+        </div>
+      </motion.section>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { Switch, Route, Router as WouterRouter } from "wouter";
+import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -10,6 +10,7 @@ import { TopBar } from "@/components/layout/TopBar";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { BottomNav } from "@/components/layout/BottomNav";
 import { ProfileSetupModal } from "@/components/ProfileSetupModal";
+import { MonetagBanner } from "@/components/MonetagBanner";
 
 import Home from "@/pages/Home";
 import Login from "@/pages/Login";
@@ -38,14 +39,17 @@ function ForceDarkMode() {
 }
 
 function AppLayout() {
+  const [location] = useLocation();
+  const isImmersiveRoute = location.startsWith("/quiz/") || location.startsWith("/results/");
+
   return (
-    <div className="min-h-screen bg-background text-foreground overflow-x-hidden">
+    <div className="min-h-screen bg-background text-foreground overflow-x-hidden selection:bg-primary selection:text-primary-foreground">
       <ForceDarkMode />
 
-      <TopBar />
-      <Sidebar />
+      {!isImmersiveRoute && <TopBar />}
+      {!isImmersiveRoute && <Sidebar />}
 
-      <main className="pt-16 md:ml-64 md:rtl:ml-0 md:rtl:mr-64 min-h-screen flex flex-col pb-16 md:pb-0">
+      <main className={isImmersiveRoute ? "min-h-screen flex flex-col" : "pt-20 md:ml-60 md:rtl:ml-0 md:rtl:mr-60 min-h-screen flex flex-col pb-36 md:pb-24"}>
         <Switch>
           <Route path="/" component={Home} />
           <Route path="/login" component={Login} />
@@ -67,7 +71,8 @@ function AppLayout() {
         </Switch>
       </main>
 
-      <BottomNav />
+      {!isImmersiveRoute && <BottomNav />}
+      {!isImmersiveRoute && <MonetagBanner />}
       <ProfileSetupModal />
     </div>
   );
