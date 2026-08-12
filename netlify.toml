@@ -3,6 +3,15 @@
   command = "pnpm --filter @workspace/quizara build"
   publish = "artifacts/quizara/dist/public"
 
+# Proxy the API to the Render deployment so the frontend can keep using
+# same-origin /api/... URLs (authFetch hardcodes them). Must precede the SPA
+# catch-all below, otherwise /api/* resolves to index.html with a 200.
+[[redirects]]
+  from = "/api/*"
+  to = "https://quizara-154s.onrender.com/api/:splat"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/*"
   to = "/index.html"

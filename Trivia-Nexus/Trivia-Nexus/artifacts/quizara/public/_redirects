@@ -1,1 +1,6 @@
-/*    /index.html   200
+# Order matters: Netlify applies the first matching rule, and rules in this file
+# are evaluated before those in netlify.toml. The /api proxy MUST stay above the
+# SPA catch-all, or /api/* requests get served index.html with a 200 instead.
+/api/*    https://quizara-154s.onrender.com/api/:splat    200!
+
+/*        /index.html                                     200
