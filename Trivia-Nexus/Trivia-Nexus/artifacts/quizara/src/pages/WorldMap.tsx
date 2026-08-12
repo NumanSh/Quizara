@@ -130,15 +130,28 @@ export default function WorldMap() {
 
   useEffect(() => {
     if (!categoryId) return;
+    const controller = new AbortController();
     setLoading(true);
     setError(null);
-    authFetch(`/api/quiz/worlds/${categoryId}`, { credentials: "include" })
-      .then(response => response.json())
-      .then((data: WorldData & { error?: string }) => {
-        if (data.error) {
-          setError(data.error);
+
+    (async () => {
+      try {
+        const response = await authFetch(`/api/quiz/worlds/${categoryId}`, { credentials: "include", signal: controller.signal });
+        // The API may be down or proxied to an error page, in which case the body is
+        // not JSON — read it as text first so a parse failure surfaces the real status.
+        const raw = await response.text();
+        let data: (WorldData & { error?: string }) | null = null;
+        try {
+          data = raw ? (JSON.parse(raw) as WorldData & { error?: string }) : null;
+        } catch {
+          data = null;
+        }
+
+        if (!response.ok || !data || data.error) {
+          setError(data?.error ?? `${t.worldMap.failedToLoad} (${response.status})`);
           return;
         }
+
         if (!isGuest) {
           setWorldData(data);
           return;
@@ -154,9 +167,16 @@ export default function WorldMap() {
         } catch {
           setWorldData(data);
         }
-      })
-      .catch(() => setError(t.worldMap.failedToLoad))
-      .finally(() => setLoading(false));
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        console.error("Failed to load world", err);
+        setError(t.worldMap.failedToLoad);
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    })();
+
+    return () => controller.abort();
   }, [categoryId, isGuest]);
 
   useEffect(() => {

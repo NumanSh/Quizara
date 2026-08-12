@@ -35,6 +35,18 @@ export const AD_ZONES = {
 
 export const AD_TAG_SRC = "https://nap5k.com/tag.min.js";
 
+/**
+ * Adsterra display banners — the one thing Monetag has no format for. These are
+ * ordinary iframe creatives with fixed dimensions, so they can sit in a
+ * container the app positions (unlike every Monetag unit, which places itself).
+ */
+export const ADSTERRA_BANNERS = {
+  mobile: { key: "bc912ca455d8c8c487342e6b0479e48f", width: 320, height: 50 },
+  desktop: { key: "877e9c113ff133f3eb1dca8dd437303a", width: 728, height: 90 },
+};
+
+export const ADSTERRA_INVOKE_HOST = "https://www.highperformanceformat.com";
+
 const VIGNETTE_LAST_SHOWN_KEY = "quizara_vignette_last";
 const VIGNETTE_MIN_GAP_MS = 3 * 60 * 1000;
 

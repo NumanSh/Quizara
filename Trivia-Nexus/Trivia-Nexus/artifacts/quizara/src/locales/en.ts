@@ -773,6 +773,10 @@ const en = {
     needCoinsForPremium: "You need {amount} coins to unlock Premium.",
   },
 
+  ads: {
+    closeAd: "Close ad",
+  },
+
   watchAd: {
     advertisement: "Advertisement",
     skip: "Skip ›",
