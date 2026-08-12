@@ -4,10 +4,30 @@ import { useI18n } from "@/lib/i18n";
 
 const DISMISS_KEY = "monetag-anchor-dismissed";
 
+// Browsers that block storage (in-app webviews, private windows, cookies
+// disabled for the site) throw on plain `sessionStorage` access rather than
+// returning null. This component renders on every route, so an unguarded read
+// takes the whole app down with a blank page.
+function readDismissed(): boolean {
+  try {
+    return sessionStorage.getItem(DISMISS_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function rememberDismissed(): void {
+  try {
+    sessionStorage.setItem(DISMISS_KEY, "1");
+  } catch {
+    // Non-fatal: the banner simply comes back on the next page load.
+  }
+}
+
 export function MonetagBanner() {
   const { t } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
-  const [dismissed, setDismissed] = useState(() => sessionStorage.getItem(DISMISS_KEY) === "1");
+  const [dismissed, setDismissed] = useState(readDismissed);
 
   useEffect(() => {
     if (dismissed || !containerRef.current) return;
@@ -30,7 +50,7 @@ export function MonetagBanner() {
   if (dismissed) return null;
 
   const handleClose = () => {
-    sessionStorage.setItem(DISMISS_KEY, "1");
+    rememberDismissed();
     setDismissed(true);
   };
 
