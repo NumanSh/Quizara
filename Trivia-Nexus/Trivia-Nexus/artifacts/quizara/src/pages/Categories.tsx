@@ -9,7 +9,6 @@ import { useToast } from "@/hooks/use-toast";
 import { useSupabaseAuth } from "@/hooks/useSupabaseAuth";
 import { PLAYER_LIBRARY_QUERY_KEY, type PlayerLibrary, updateCategoryFavorite, usePlayerLibrary } from "@/hooks/usePlayerLibrary";
 import { authFetch } from "@/lib/api";
-import { AdSlot } from "@/components/AdSlot";
 import { useI18n } from "@/lib/i18n";
 
 const CATEGORY_IMAGES: Record<string, string> = {
@@ -224,7 +223,6 @@ export default function Categories() {
         </div>
       </main>
 
-      <AdSlot index={0} className="border-t border-white/8" />
     </div>
   );
 }

@@ -12,6 +12,7 @@ import { WatchAdModal } from "@/components/WatchAdModal";
 import { useSupabaseAuth } from "@/hooks/useSupabaseAuth";
 import { useToast } from "@/hooks/use-toast";
 import { authFetch } from "@/lib/api";
+import { showVignetteAtBreak } from "@/lib/ads";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
@@ -56,6 +57,14 @@ export default function Results() {
     }
     if (!completeQuiz.data && !completeQuiz.isPending) completeQuiz.mutate({ sessionId });
   }, [session?.status, sessionId]);
+
+  // A finished quiz is the one moment a full-screen ad interrupts nothing. Skip
+  // it while the session is still active — that render is on its way back to the
+  // quiz, and an ad there would land mid-question.
+  useEffect(() => {
+    if (!session || session.status === "active") return;
+    showVignetteAtBreak();
+  }, [session?.status]);
 
   useEffect(() => {
     const raw = sessionStorage.getItem("challenge_ctx");

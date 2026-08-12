@@ -775,11 +775,6 @@ const ar: Translations = {
     needCoinsForPremium: "تحتاج {amount} عملة لتفعيل بريميوم.",
   },
 
-  monetag: {
-    sponsoredContent: "محتوى مدعوم",
-    closeAd: "إغلاق الإعلان",
-  },
-
   watchAd: {
     advertisement: "إعلان",
     skip: "‹ تخطي",

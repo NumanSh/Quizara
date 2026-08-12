@@ -773,11 +773,6 @@ const en = {
     needCoinsForPremium: "You need {amount} coins to unlock Premium.",
   },
 
-  monetag: {
-    sponsoredContent: "Sponsored Content",
-    closeAd: "Close ad",
-  },
-
   watchAd: {
     advertisement: "Advertisement",
     skip: "Skip ›",

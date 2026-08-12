@@ -10,7 +10,7 @@ import { TopBar } from "@/components/layout/TopBar";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { BottomNav } from "@/components/layout/BottomNav";
 import { ProfileSetupModal } from "@/components/ProfileSetupModal";
-import { MonetagBanner } from "@/components/MonetagBanner";
+import { MonetagAds } from "@/components/MonetagAds";
 
 import Home from "@/pages/Home";
 import Login from "@/pages/Login";
@@ -49,7 +49,7 @@ function AppLayout() {
       {!isImmersiveRoute && <TopBar />}
       {!isImmersiveRoute && <Sidebar />}
 
-      <main className={isImmersiveRoute ? "min-h-screen flex flex-col" : "pt-20 md:ml-60 md:rtl:ml-0 md:rtl:mr-60 min-h-screen flex flex-col pb-36 md:pb-24"}>
+      <main className={isImmersiveRoute ? "min-h-screen flex flex-col" : "pt-20 md:ml-60 md:rtl:ml-0 md:rtl:mr-60 min-h-screen flex flex-col pb-20 md:pb-0"}>
         <Switch>
           <Route path="/" component={Home} />
           <Route path="/login" component={Login} />
@@ -72,7 +72,7 @@ function AppLayout() {
       </main>
 
       {!isImmersiveRoute && <BottomNav />}
-      {!isImmersiveRoute && <MonetagBanner />}
+      {!isImmersiveRoute && <MonetagAds />}
       <ProfileSetupModal />
     </div>
   );
