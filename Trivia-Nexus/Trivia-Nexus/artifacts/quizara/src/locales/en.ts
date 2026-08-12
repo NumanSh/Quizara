@@ -775,6 +775,7 @@ const en = {
 
   ads: {
     closeAd: "Close ad",
+    sponsored: "Sponsored",
   },
 
   watchAd: {

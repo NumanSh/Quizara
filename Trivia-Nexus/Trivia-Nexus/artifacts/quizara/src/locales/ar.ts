@@ -777,6 +777,7 @@ const ar: Translations = {
 
   ads: {
     closeAd: "إغلاق الإعلان",
+    sponsored: "إعلان مموّل",
   },
 
   watchAd: {

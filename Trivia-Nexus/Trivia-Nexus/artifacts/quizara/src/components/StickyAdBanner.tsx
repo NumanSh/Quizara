@@ -1,11 +1,10 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { X } from "lucide-react";
 import { AdsterraBanner } from "./AdsterraBanner";
-import { ADSTERRA_BANNERS } from "@/lib/ads";
+import { useResponsiveBanner } from "@/hooks/useResponsiveBanner";
 import { useI18n } from "@/lib/i18n";
 
 const DISMISS_KEY = "quizara-sticky-ad-dismissed";
-const DESKTOP_QUERY = "(min-width: 768px)";
 
 // Storage throws rather than returning null in blocked contexts (in-app
 // webviews, private windows, cookies disabled). This renders on every route, so
@@ -34,22 +33,9 @@ function rememberDismissed(): void {
 export function StickyAdBanner() {
   const { t } = useI18n();
   const [dismissed, setDismissed] = useState(readDismissed);
-  const [isDesktop, setIsDesktop] = useState(
-    () => typeof window !== "undefined" && window.matchMedia(DESKTOP_QUERY).matches,
-  );
-
-  // Swap creative sizes on resize/rotate rather than rendering both — two
-  // iframes would mean two billed impressions for one visible ad.
-  useEffect(() => {
-    const query = window.matchMedia(DESKTOP_QUERY);
-    const onChange = (event: MediaQueryListEvent) => setIsDesktop(event.matches);
-    query.addEventListener("change", onChange);
-    return () => query.removeEventListener("change", onChange);
-  }, []);
+  const banner = useResponsiveBanner();
 
   if (dismissed) return null;
-
-  const banner = isDesktop ? ADSTERRA_BANNERS.desktop : ADSTERRA_BANNERS.mobile;
 
   const handleClose = () => {
     rememberDismissed();
